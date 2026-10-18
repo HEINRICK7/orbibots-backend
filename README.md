@@ -62,6 +62,32 @@ This change does not provide account enrollment or password setup. Existing
 users have a nullable password hash and cannot log in until a separate secure
 provisioning flow sets one; no default password is created.
 
+## Initial company administrators
+
+The existing schema already supports `COMPANY_ADMIN` memberships. Alembic does
+not need a schema migration to create the initial company and its users.
+
+Set `INITIAL_COMPANY_NAME`, both admin names and emails, and two distinct
+passwords in the ignored local `.env` file. Each password must contain at least
+20 characters. Generate a separate random password for each user:
+
+```powershell
+.\venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Keep passwords out of chat, Git, migration files, and command-line arguments.
+Run the explicit provisioning command after PostgreSQL is running and the
+Alembic migrations have been applied:
+
+```powershell
+.\venv\Scripts\python.exe -m app.bootstrap.initial_admins
+```
+
+The command creates the company as `ACTIVE`, creates missing users with
+Argon2 password hashes, and assigns active `COMPANY_ADMIN` memberships. It is
+safe to rerun: existing accounts are not given new passwords, and conflicting
+inactive accounts or memberships cause an explicit error.
+
 ## Project layout
 
 ```text
@@ -106,7 +132,8 @@ tests/
 - `app/bootstrap/` creates the FastAPI application and Punq container, wires
   infrastructure adapters into use cases, and imports all ORM models for
   Alembic metadata. Authentication wiring lives in
-  `app/bootstrap/authentication.py`.
+  `app/bootstrap/authentication.py`; initial company-admin provisioning lives
+  in `app/bootstrap/initial_admins.py`.
 - `migrations/` contains Alembic environment configuration and versioned schema
   changes. Moving Python modules must not create a migration by itself.
 - `tests/` contains unit, HTTP integration, architecture-boundary, and
