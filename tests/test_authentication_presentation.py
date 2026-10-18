@@ -92,6 +92,39 @@ class AuthenticationPresentationTests(unittest.TestCase):
             self.session_dependency.session,
         )
 
+    def test_login_rejects_payloads_outside_the_swagger_contract(self) -> None:
+        self.login_use_case.execute.return_value = IssuedAccessToken(
+            encoded="signed-token",
+            expires_in=60,
+        )
+        rejected = [
+            {},
+            {"email": "ab", "password": "x"},
+            {"email": "a" * 321, "password": "x"},
+            {"email": "abc", "password": ""},
+            {"email": "abc", "password": "x" * 1025},
+            {"email": "abc"},
+            {"password": "x"},
+            {"email": 1, "password": "x"},
+            {"email": "abc", "password": None},
+        ]
+
+        with TestClient(self.app) as client:
+            responses = [client.post("/auth/login", json=payload) for payload in rejected]
+            accepted = [
+                client.post("/auth/login", json={"email": "abc", "password": "x"}),
+                client.post(
+                    "/auth/login",
+                    json={"email": "a" * 320, "password": "x" * 1024},
+                ),
+            ]
+
+        self.assertEqual([response.status_code for response in responses], [422] * len(rejected))
+        self.assertEqual([response.status_code for response in accepted], [200, 200])
+        self.assertEqual(self.login_use_case.execute.call_count, 2)
+        self.login_use_case.execute.assert_any_call("abc", "x")
+        self.login_use_case.execute.assert_any_call("a" * 320, "x" * 1024)
+
     def test_authentication_errors_keep_existing_http_responses(self) -> None:
         self.login_use_case.execute.side_effect = AuthenticationError
         self.authenticate_user_use_case.execute.side_effect = AuthenticationError
