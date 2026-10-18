@@ -1,0 +1,9 @@
+.github
+openspec
+.env
+.agents
+.grok
+skills-lock.json
+.env.*
+!.env.example
+__pycache__
