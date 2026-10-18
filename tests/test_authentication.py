@@ -99,7 +99,7 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             set(response.json()["paths"]),
-            {"/auth/login", "/auth/me"},
+            {"/auth/login", "/auth/me", "/health"},
         )
 
     def test_asgi_entry_point_is_inside_app_package(self) -> None:
@@ -204,6 +204,19 @@ class AuthenticationTests(unittest.TestCase):
     def test_production_configuration_requires_database_and_signing_secret(self) -> None:
         with self.assertRaises(ConfigurationError):
             Settings(app_env="production")
+        with self.assertRaises(ConfigurationError):
+            Settings(app_env="staging")
+
+    def test_swagger_and_health_are_public(self) -> None:
+        with self.create_client() as client:
+            health = client.get("/health")
+            swagger = client.get("/docs")
+            openapi = client.get("/openapi.json")
+
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json(), {"status": "ok"})
+        self.assertEqual(swagger.status_code, 200)
+        self.assertIn("/auth/login", openapi.json()["paths"])
 
     def test_application_containers_are_isolated_per_instance(self) -> None:
         first_app = create_app(self.settings, session_factory=self.session_factory)

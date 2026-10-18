@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -34,7 +35,26 @@ def create_app(
         if engine is not None:
             engine.dispose()
 
-    application = FastAPI(title="OrbiBots API", lifespan=lifespan)
+    application = FastAPI(
+        title="OrbiBots API",
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
+        lifespan=lifespan,
+    )
+    if app_settings.cors_origins:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(app_settings.cors_origins),
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    @application.get("/health", tags=["health"])
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     application.state.container = create_container(app_settings)
     application.state.session_factory = app_session_factory
     authentication_use_cases = AuthenticationUseCaseProvider()
