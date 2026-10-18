@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.bootstrap.authentication import AuthenticationUseCaseProvider
 from app.bootstrap.container import create_container
+from app.contexts.authentication.infrastructure.bootstrap_admin import BootstrapAdmin
 from app.contexts.authentication.presentation.router import AuthenticationRouter
 from app.platform.config import Settings
 
@@ -31,6 +32,18 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> Iterator[None]:
+        if (
+            app_session_factory is not None
+            and app_settings.bootstrap_admin_email
+            and app_settings.bootstrap_admin_password
+        ):
+            with app_session_factory() as session:
+                BootstrapAdmin().ensure(
+                    session,
+                    email=app_settings.bootstrap_admin_email,
+                    password=app_settings.bootstrap_admin_password,
+                    name=app_settings.bootstrap_admin_name,
+                )
         yield
         if engine is not None:
             engine.dispose()
