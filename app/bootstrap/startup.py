@@ -2,11 +2,14 @@ from collections.abc import Iterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.bootstrap import model_registry
 from app.bootstrap.authentication import AuthenticationUseCaseProvider
 from app.bootstrap.container import create_container
+from app.contexts.authentication.infrastructure.bootstrap_admin import BootstrapAdmin
 from app.contexts.authentication.presentation.router import AuthenticationRouter
 from app.platform.config import Settings
 
@@ -17,6 +20,7 @@ def create_app(
     session_factory: sessionmaker[Session] | None = None,
 ) -> FastAPI:
     app_settings = settings or Settings.from_environment()
+    model_registry.Base.metadata
     engine: Engine | None = None
     app_session_factory = session_factory
 
@@ -30,11 +34,42 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> Iterator[None]:
+        if (
+            app_session_factory is not None
+            and app_settings.bootstrap_admin_email
+            and app_settings.bootstrap_admin_password
+        ):
+            with app_session_factory() as session:
+                BootstrapAdmin().ensure(
+                    session,
+                    email=app_settings.bootstrap_admin_email,
+                    password=app_settings.bootstrap_admin_password,
+                    name=app_settings.bootstrap_admin_name,
+                )
         yield
         if engine is not None:
             engine.dispose()
 
-    application = FastAPI(title="OrbiBots API", lifespan=lifespan)
+    application = FastAPI(
+        title="OrbiBots API",
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
+        lifespan=lifespan,
+    )
+    if app_settings.cors_origins:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(app_settings.cors_origins),
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    @application.get("/health", tags=["health"])
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     application.state.container = create_container(app_settings)
     application.state.session_factory = app_session_factory
     authentication_use_cases = AuthenticationUseCaseProvider()

@@ -1,0 +1,114 @@
+name: OrbiBots backend CI/CD
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [staging, main]
+  push:
+    branches: [staging, main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: orbibots-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/heinrick7/orbibots-backend
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests
+
+  deploy:
+    name: Publish and deploy
+    needs: test
+    if: github.event_name == 'push' && (github.ref_name == 'staging' || github.ref_name == 'main')
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and publish image
+        run: |
+          set -euo pipefail
+          docker build \
+            --tag "$IMAGE_NAME:${GITHUB_REF_NAME}" \
+            --tag "$IMAGE_NAME:${GITHUB_SHA}" \
+            .
+          docker push "$IMAGE_NAME:${GITHUB_REF_NAME}"
+          docker push "$IMAGE_NAME:${GITHUB_SHA}"
+
+      - name: Deploy only this API on the VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          case "$GITHUB_REF_NAME" in
+            staging) environment_name=staging ;;
+            main) environment_name=production ;;
+            *)
+              echo "Branch sem deploy: $GITHUB_REF_NAME"
+              exit 1
+              ;;
+          esac
+
+          : "${VPS_HOST:?Configure VPS_HOST}"
+          : "${VPS_USER:?Configure VPS_USER}"
+          : "${VPS_PORT:?Configure VPS_PORT}"
+          : "${VPS_SSH_PRIVATE_KEY:?Configure VPS_SSH_PRIVATE_KEY}"
+          : "${VPS_KNOWN_HOSTS:?Configure VPS_KNOWN_HOSTS}"
+
+          case "$environment_name" in
+            staging) deploy_dir=/opt/orbibots-backend/staging ;;
+            production) deploy_dir=/opt/orbibots-backend/production ;;
+          esac
+
+          ssh_dir="$(mktemp -d)"
+          trap 'rm -rf "$ssh_dir"' EXIT
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$ssh_dir/id_ed25519"
+          chmod 600 "$ssh_dir/id_ed25519"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+
+          ssh_args=(-i "$ssh_dir/id_ed25519" -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" -p "$VPS_PORT")
+          scp_args=(-i "$ssh_dir/id_ed25519" -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" -P "$VPS_PORT")
+          remote="$VPS_USER@$VPS_HOST"
+
+          ssh "${ssh_args[@]}" "$remote" "mkdir -p '$deploy_dir' /opt/orbibots-backend/.docker && chmod 700 /opt/orbibots-backend/.docker && test -f '$deploy_dir/.env'"
+          scp "${scp_args[@]}" deploy/docker-compose.yml deploy/rollout.sh "$remote:$deploy_dir/"
+          ssh "${ssh_args[@]}" "$remote" "chmod 755 '$deploy_dir/rollout.sh'"
+
+          printf '%s\n' "$GHCR_TOKEN" | ssh "${ssh_args[@]}" "$remote" "DOCKER_CONFIG=/opt/orbibots-backend/.docker docker login ghcr.io --username '$GHCR_USER' --password-stdin"
+
+          ssh "${ssh_args[@]}" "$remote" "ORBIBOTS_ENV='$environment_name' ORBIBOTS_IMAGE='$IMAGE_NAME:${GITHUB_SHA}' bash '$deploy_dir/rollout.sh'"

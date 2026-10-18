@@ -5,7 +5,7 @@ import jwt
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pwdlib import PasswordHash
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -21,6 +21,7 @@ from app.contexts.authentication.infrastructure.repository import (
     SqlAlchemyUserAuthenticationRepository,
 )
 from app.contexts.authentication.infrastructure.tokens import JwtAccessTokenProvider
+from app.contexts.authentication.infrastructure.bootstrap_admin import BootstrapAdmin
 from app.platform.config import ConfigurationError, Settings
 
 
@@ -99,7 +100,7 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             set(response.json()["paths"]),
-            {"/auth/login", "/auth/me"},
+            {"/auth/login", "/auth/me", "/health"},
         )
 
     def test_asgi_entry_point_is_inside_app_package(self) -> None:
@@ -201,9 +202,50 @@ class AuthenticationTests(unittest.TestCase):
 
         self.assertEqual([response.status_code for response in responses], [401, 401, 401])
 
+    def test_bootstrap_admin_is_created_once(self) -> None:
+        with self.session_factory() as session:
+            admin = BootstrapAdmin()
+            admin.ensure(
+                session,
+                email="Admin@Example.test",
+                password="correct horse battery staple",
+                name="Administrador",
+            )
+            admin.ensure(
+                session,
+                email="admin@example.test",
+                password="another-password",
+                name="Outro",
+            )
+            stored = session.scalar(
+                select(UserRecord).where(UserRecord.email == "admin@example.test")
+            )
+
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.name, "Administrador")
+        self.assertTrue(
+            PwdlibPasswordVerifier(PasswordHash.recommended()).verify(
+                "correct horse battery staple",
+                stored.password_hash,
+            )
+        )
+
     def test_production_configuration_requires_database_and_signing_secret(self) -> None:
         with self.assertRaises(ConfigurationError):
             Settings(app_env="production")
+        with self.assertRaises(ConfigurationError):
+            Settings(app_env="staging")
+
+    def test_swagger_and_health_are_public(self) -> None:
+        with self.create_client() as client:
+            health = client.get("/health")
+            swagger = client.get("/docs")
+            openapi = client.get("/openapi.json")
+
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json(), {"status": "ok"})
+        self.assertEqual(swagger.status_code, 200)
+        self.assertIn("/auth/login", openapi.json()["paths"])
 
     def test_application_containers_are_isolated_per_instance(self) -> None:
         first_app = create_app(self.settings, session_factory=self.session_factory)
