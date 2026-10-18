@@ -74,6 +74,17 @@ class PostgresSchemaTests(unittest.TestCase):
             column["name"]: column for column in inspector.get_columns("memberships")
         }
         self.assertEqual(membership_columns["scope"]["type"].name, "membership_scope")
+        user_columns = {
+            column["name"]: column for column in inspector.get_columns("users")
+        }
+        self.assertTrue(user_columns["global_role"]["nullable"])
+        self.assertIn(
+            "ck_users_global_role",
+            {
+                constraint["name"]
+                for constraint in inspector.get_check_constraints("users")
+            },
+        )
 
         index_names = {
             index["name"]
@@ -166,6 +177,19 @@ class PostgresSchemaTests(unittest.TestCase):
                             "id": uuid.uuid4(),
                             "company_id": uuid.uuid4(),
                             "user_id": user_id,
+                        },
+                    )
+
+            with self.assertRaises(IntegrityError):
+                with connection.begin_nested():
+                    connection.execute(
+                        text(
+                            "INSERT INTO users (id, name, email, global_role) "
+                            "VALUES (:id, 'Invalid Role', :email, 'SUPER_ADMIN')"
+                        ),
+                        {
+                            "id": uuid.uuid4(),
+                            "email": f"invalid-role-{user_id}@example.test",
                         },
                     )
 
@@ -270,6 +294,13 @@ class PostgresSchemaTests(unittest.TestCase):
         command.upgrade(self.alembic_config, "head")
         self.assertTrue(
             ONBOARDING_TABLES.issubset(inspect(self.engine).get_table_names())
+        )
+        self.assertIn(
+            "global_role",
+            {
+                column["name"]
+                for column in inspect(self.engine).get_columns("users")
+            },
         )
 
 

@@ -27,6 +27,7 @@ class Settings:
     bootstrap_admin_email: str | None = None
     bootstrap_admin_password: str | None = None
     bootstrap_admin_name: str = "Administrador"
+    global_admin_allowed_emails: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.app_env not in {"development", "test", "staging", "production"}:
@@ -60,6 +61,7 @@ class Settings:
         load_environment()
         database_url = os.getenv("DATABASE_URL")
         jwt_secret_key = os.getenv("JWT_SECRET_KEY")
+        global_admin_allowed_emails = os.getenv("GLOBAL_ADMIN_ALLOWED_EMAILS")
         return cls(
             app_env=os.getenv("APP_ENV", "development").lower(),
             database_url=database_url or None,
@@ -76,4 +78,12 @@ class Settings:
             bootstrap_admin_email=os.getenv("BOOTSTRAP_ADMIN_EMAIL") or None,
             bootstrap_admin_password=os.getenv("BOOTSTRAP_ADMIN_PASSWORD") or None,
             bootstrap_admin_name=os.getenv("BOOTSTRAP_ADMIN_NAME", "Administrador"),
+            global_admin_allowed_emails=(
+                tuple(
+                    email.strip()
+                    for email in global_admin_allowed_emails.split(",")
+                )
+                if global_admin_allowed_emails
+                else ()
+            ),
         )
