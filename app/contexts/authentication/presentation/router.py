@@ -11,6 +11,8 @@ from app.contexts.authentication.application.use_cases.login import LoginUseCase
 from app.contexts.authentication.domain.errors import AuthenticationError
 from app.contexts.authentication.domain.user import AuthenticatedUser
 from app.contexts.authentication.presentation.dependencies import (
+    CurrentUserDependency,
+    RequireGlobalAdminDependency,
     database_session_dependency,
 )
 from app.contexts.authentication.presentation.schemas import (
@@ -37,6 +39,9 @@ class AuthenticationRouter:
         self._login_use_case_provider = login_use_case_provider
         self._authenticate_user_use_case_provider = (
             authenticate_user_use_case_provider
+        )
+        self.require_global_admin = RequireGlobalAdminDependency(
+            CurrentUserDependency(authenticate_user_use_case_provider)
         )
         self.router = APIRouter()
         self.router.add_api_route(

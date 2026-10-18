@@ -6,9 +6,16 @@ from pwdlib import PasswordHash
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.contexts.authentication.application.use_cases.grant_global_admin import (
+    GlobalAdminAllowlist,
+    GrantGlobalAdminUseCase,
+)
 from app.contexts.authentication.infrastructure.models import UserRecord
 from app.contexts.authentication.infrastructure.password_hashing import (
     PasswordHashFactory,
+)
+from app.contexts.authentication.infrastructure.repository import (
+    SqlAlchemyUserAuthenticationRepository,
 )
 from app.contexts.company_onboarding.infrastructure.models import Company, Membership
 from app.platform.config import ConfigurationError, Settings
@@ -29,10 +36,12 @@ class InitialAdminProvisioner:
         session_factory: sessionmaker[Session],
         company_name: str,
         admins: tuple[InitialAdminAccount, InitialAdminAccount],
+        allowed_admin_emails: tuple[str, ...],
     ) -> None:
         self._session_factory = session_factory
         self._company_name = company_name.strip()
         self._admins = admins
+        self._allowlist = GlobalAdminAllowlist(allowed_admin_emails)
 
     @classmethod
     def run_from_environment(cls) -> None:
@@ -65,6 +74,7 @@ class InitialAdminProvisioner:
                 ),
                 company_name,
                 admins,
+                settings.global_admin_allowed_emails,
             )
             provisioner.execute(PasswordHashFactory().create())
         finally:
@@ -74,9 +84,14 @@ class InitialAdminProvisioner:
         self._validate_configuration()
         with self._session_factory() as session, session.begin():
             company = self._get_or_create_company(session)
+            grant_global_admin = GrantGlobalAdminUseCase(
+                SqlAlchemyUserAuthenticationRepository(session),
+                self._allowlist,
+            )
             for admin in self._admins:
                 user = self._get_or_create_user(session, admin, password_hash)
                 self._ensure_admin_membership(session, company, user)
+                grant_global_admin.execute(user.email)
 
         print(
             f"Initial company admins are ready for '{self._company_name}': "
@@ -92,6 +107,10 @@ class InitialAdminProvisioner:
         emails = [admin.email.casefold() for admin in self._admins]
         if len(set(emails)) != len(emails):
             raise ConfigurationError("Initial admin email addresses must be unique.")
+        if not self._allowlist.matches(admin.email for admin in self._admins):
+            raise ConfigurationError(
+                "Initial admin identities must exactly match GLOBAL_ADMIN_ALLOWED_EMAILS."
+            )
 
         for index, admin in enumerate(self._admins, start=1):
             if not admin.name or len(admin.name) > 255:

@@ -11,6 +11,7 @@ from app.bootstrap.initial_admins import (
     InitialAdminProvisioner,
 )
 from app.bootstrap.model_registry import Base
+from app.contexts.authentication.domain.global_role import GlobalRole
 from app.contexts.authentication.infrastructure.models import UserRecord
 from app.contexts.company_onboarding.infrastructure.models import Company, Membership
 from app.platform.config import ConfigurationError
@@ -47,6 +48,7 @@ class InitialAdminProvisionerTests(unittest.TestCase):
             self.session_factory,
             "otimizanegocio",
             self.admins,
+            tuple(admin.email for admin in self.admins),
         )
 
     def tearDown(self) -> None:
@@ -66,6 +68,10 @@ class InitialAdminProvisionerTests(unittest.TestCase):
         self.assertEqual(company.name, "otimizanegocio")
         self.assertEqual(company.status, "ACTIVE")
         self.assertEqual(len(users), 2)
+        self.assertEqual(
+            {user.global_role for user in users},
+            {GlobalRole.ADMIN.value},
+        )
         self.assertEqual(
             {user.email for user in users},
             {admin.email for admin in self.admins},
@@ -109,6 +115,7 @@ class InitialAdminProvisionerTests(unittest.TestCase):
             self.session_factory,
             "otimizanegocio",
             weak_admins,
+            tuple(admin.email for admin in self.admins),
         )
 
         with self.assertRaises(ConfigurationError):
@@ -132,6 +139,28 @@ class InitialAdminProvisionerTests(unittest.TestCase):
             self.session_factory,
             "otimizanegocio",
             duplicate_password_admins,
+            tuple(admin.email for admin in self.admins),
+        )
+
+        with self.assertRaises(ConfigurationError):
+            provisioner.execute(self.password_hash)
+
+        with self.session_factory() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(Company)), 0)
+            self.assertEqual(session.scalar(select(func.count()).select_from(UserRecord)), 0)
+        self.password_hash.hash.assert_not_called()
+
+    def test_rejects_admin_identities_that_do_not_match_the_allowlist(self) -> None:
+        third_admin = InitialAdminAccount(
+            name="Third Admin",
+            email="third@example.test",
+            password="a-different-strong-password-123",
+        )
+        provisioner = InitialAdminProvisioner(
+            self.session_factory,
+            "otimizanegocio",
+            (self.admins[0], third_admin),
+            tuple(admin.email for admin in self.admins),
         )
 
         with self.assertRaises(ConfigurationError):

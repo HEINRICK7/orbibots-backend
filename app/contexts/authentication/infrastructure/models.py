@@ -12,12 +12,17 @@ class UserRecord(Base):
     __table_args__ = (
         CheckConstraint("status IN ('ACTIVE', 'SUSPENDED')", name="ck_users_status"),
         CheckConstraint("length(trim(name)) > 0", name="ck_users_name_not_empty"),
+        CheckConstraint(
+            "global_role IS NULL OR global_role = 'ADMIN'",
+            name="ck_users_global_role",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    global_role: Mapped[str | None] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="ACTIVE", server_default="ACTIVE"
     )

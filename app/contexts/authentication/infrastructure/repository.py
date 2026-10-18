@@ -4,6 +4,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.contexts.authentication.application.ports import UserCredentials
+from app.contexts.authentication.domain.errors import GlobalAdminGrantError
+from app.contexts.authentication.domain.global_role import GlobalRole
 from app.contexts.authentication.domain.user import AuthenticatedUser
 from app.contexts.authentication.infrastructure.models import UserRecord
 
@@ -28,6 +30,18 @@ class SqlAlchemyUserAuthenticationRepository:
         user = self._session.get(UserRecord, user_id)
         return self._to_domain(user) if user is not None else None
 
+    def grant_global_admin(self, email: str) -> AuthenticatedUser:
+        user = self._session.scalar(
+            select(UserRecord).where(func.lower(UserRecord.email) == email)
+        )
+        if user is None or user.status != "ACTIVE" or user.password_hash is None:
+            raise GlobalAdminGrantError(
+                "Only an active user with a password hash can receive global ADMIN."
+            )
+        user.global_role = GlobalRole.ADMIN.value
+        self._session.flush()
+        return self._to_domain(user)
+
     @staticmethod
     def _to_domain(user: UserRecord) -> AuthenticatedUser:
         return AuthenticatedUser(
@@ -35,4 +49,5 @@ class SqlAlchemyUserAuthenticationRepository:
             name=user.name,
             email=user.email,
             is_active=user.status == "ACTIVE",
+            global_role=GlobalRole(user.global_role) if user.global_role else None,
         )

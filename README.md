@@ -64,11 +64,18 @@ provisioning flow sets one; no default password is created.
 
 ## Initial company administrators
 
-The existing schema already supports `COMPANY_ADMIN` memberships. Alembic does
-not need a schema migration to create the initial company and its users.
+`COMPANY_ADMIN` is a company-scoped membership role. Global platform access is
+separate: only users with global `ADMIN` may use routes protected by the
+platform-administration dependency. A global role does not create or bypass
+company memberships.
 
-Set `INITIAL_COMPANY_NAME`, both admin names and emails, and two distinct
-passwords in the ignored local `.env` file. Each password must contain at least
+The migration adds nullable `users.global_role`, constrained to `ADMIN` or
+`NULL`. Set `INITIAL_COMPANY_NAME`, both initial-admin names and emails,
+`GLOBAL_ADMIN_ALLOWED_EMAILS` to those exact two email identities (comma
+separated), and two distinct passwords in the ignored local `.env` file. The
+allowlist is trusted application configuration, not a user-editable database
+setting. Downgrading the global-role migration removes all role assignments;
+confirm the impact before rolling it back. Each password must contain at least
 20 characters. Generate a separate random password for each user:
 
 ```powershell
@@ -84,9 +91,20 @@ Alembic migrations have been applied:
 ```
 
 The command creates the company as `ACTIVE`, creates missing users with
-Argon2 password hashes, and assigns active `COMPANY_ADMIN` memberships. It is
-safe to rerun: existing accounts are not given new passwords, and conflicting
-inactive accounts or memberships cause an explicit error.
+Argon2 password hashes, assigns active `COMPANY_ADMIN` memberships, and grants
+global `ADMIN` only to the two allowlisted identities. The allowlist must
+contain exactly two distinct valid email addresses and match the initial
+account identities; otherwise provisioning fails before database changes.
+Provisioning is safe to rerun: existing accounts are not given new passwords,
+and conflicting inactive accounts or memberships cause an explicit error.
+
+To change the allowlist, coordinate a deployment configuration update with the
+two `INITIAL_ADMIN_*_EMAIL` identities before running provisioning. Keep both
+sources synchronized and review the target accounts and their active status
+before promotion. Do not add an administrative role through a general user
+creation flow. This application allowlist protects application-mediated
+grants; a privileged database operator can still modify `users.global_role`
+directly, which is outside this mechanism's enforcement boundary.
 
 ## Project layout
 

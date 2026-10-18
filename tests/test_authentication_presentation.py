@@ -2,7 +2,7 @@ import unittest
 from uuid import uuid4
 from unittest.mock import Mock
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.contexts.authentication.application.ports import IssuedAccessToken
@@ -11,6 +11,7 @@ from app.contexts.authentication.application.use_cases.authenticate_user import 
 )
 from app.contexts.authentication.application.use_cases.login import LoginUseCase
 from app.contexts.authentication.domain.errors import AuthenticationError
+from app.contexts.authentication.domain.global_role import GlobalRole
 from app.contexts.authentication.domain.user import AuthenticatedUser
 from app.contexts.authentication.presentation.dependencies import (
     database_session_dependency,
@@ -37,12 +38,17 @@ class AuthenticationPresentationTests(unittest.TestCase):
         self.session_dependency = StubSessionDependency()
 
         self.app = FastAPI()
-        self.app.include_router(
-            AuthenticationRouter(
-                self.login_use_case_provider,
-                self.authenticate_user_use_case_provider,
-            ).router,
-            prefix="/auth",
+        self.authentication_router = AuthenticationRouter(
+            self.login_use_case_provider,
+            self.authenticate_user_use_case_provider,
+        )
+        self.app.include_router(self.authentication_router.router, prefix="/auth")
+        self.app.add_api_route(
+            "/global",
+            lambda: {"status": "ok"},
+            dependencies=[
+                Depends(self.authentication_router.require_global_admin)
+            ],
         )
         self.app.dependency_overrides[database_session_dependency] = (
             self.session_dependency
@@ -118,6 +124,77 @@ class AuthenticationPresentationTests(unittest.TestCase):
             "Invalid authentication credentials.",
         )
         self.assertEqual(missing_token_response.status_code, 401)
+
+    def test_global_admin_dependency_allows_admin_and_denies_regular_users(self) -> None:
+        admin = AuthenticatedUser(
+            id=uuid4(),
+            name="Global Admin",
+            email="admin@example.test",
+            is_active=True,
+            global_role=GlobalRole.ADMIN,
+        )
+        regular_user = AuthenticatedUser(
+            id=uuid4(),
+            name="Regular User",
+            email="user@example.test",
+            is_active=True,
+        )
+        self.authenticate_user_use_case.execute.side_effect = [admin, regular_user]
+
+        with TestClient(self.app) as client:
+            admin_response = client.get(
+                "/global", headers={"Authorization": "Bearer valid-token"}
+            )
+            regular_response = client.get(
+                "/global", headers={"Authorization": "Bearer valid-token"}
+            )
+            missing_token_response = client.get("/global")
+
+        self.assertEqual(admin_response.status_code, 200)
+        self.assertEqual(regular_response.status_code, 403)
+        self.assertEqual(missing_token_response.status_code, 401)
+
+    def test_global_role_changes_take_effect_without_renewing_the_token(self) -> None:
+        admin = AuthenticatedUser(
+            id=uuid4(),
+            name="Global Admin",
+            email="admin@example.test",
+            is_active=True,
+            global_role=GlobalRole.ADMIN,
+        )
+        regular_user = AuthenticatedUser(
+            id=admin.id,
+            name=admin.name,
+            email=admin.email,
+            is_active=True,
+        )
+        self.authenticate_user_use_case.execute.side_effect = [admin, regular_user]
+
+        with TestClient(self.app) as client:
+            headers = {"Authorization": "Bearer unchanged-token"}
+            initially_allowed = client.get("/global", headers=headers)
+            after_role_removal = client.get("/global", headers=headers)
+
+        self.assertEqual(initially_allowed.status_code, 200)
+        self.assertEqual(after_role_removal.status_code, 403)
+        self.assertEqual(
+            self.authenticate_user_use_case.execute.call_args_list[0].args[0],
+            "unchanged-token",
+        )
+        self.assertEqual(
+            self.authenticate_user_use_case.execute.call_args_list[1].args[0],
+            "unchanged-token",
+        )
+
+    def test_global_admin_dependency_preserves_unauthorized_responses(self) -> None:
+        self.authenticate_user_use_case.execute.side_effect = AuthenticationError
+
+        with TestClient(self.app) as client:
+            response = client.get(
+                "/global", headers={"Authorization": "Bearer invalid-token"}
+            )
+
+        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":

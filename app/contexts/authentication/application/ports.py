@@ -23,6 +23,10 @@ class UserAuthenticationRepository(Protocol):
     def get_by_id(self, user_id: UUID) -> AuthenticatedUser | None: ...
 
 
+class GlobalAdminGrantRepository(Protocol):
+    def grant_global_admin(self, email: str) -> AuthenticatedUser: ...
+
+
 class PasswordVerifier(Protocol):
     def verify(self, password: str, encoded_hash: str) -> bool: ...
 

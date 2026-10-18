@@ -1,7 +1,20 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session, sessionmaker
+
+from app.contexts.authentication.application.use_cases.authenticate_user import (
+    AuthenticateUserUseCase,
+)
+from app.contexts.authentication.domain.errors import AuthenticationError
+from app.contexts.authentication.domain.global_role import GlobalRole
+from app.contexts.authentication.domain.user import AuthenticatedUser
+
+
+AuthenticateUserUseCaseProvider = Callable[
+    [Request, Session], AuthenticateUserUseCase
+]
 
 
 class DatabaseSessionDependency:
@@ -19,3 +32,68 @@ class DatabaseSessionDependency:
 
 
 database_session_dependency = DatabaseSessionDependency()
+
+
+class CurrentUserDependency:
+    _bearer_scheme = HTTPBearer(auto_error=False)
+
+    def __init__(
+        self,
+        authenticate_user_use_case_provider: AuthenticateUserUseCaseProvider,
+    ) -> None:
+        self._authenticate_user_use_case_provider = (
+            authenticate_user_use_case_provider
+        )
+
+    def __call__(
+        self,
+        request: Request,
+        credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+        session: Session = Depends(database_session_dependency),
+    ) -> AuthenticatedUser:
+        return self.resolve(request, credentials, session)
+
+    def resolve(
+        self,
+        request: Request,
+        credentials: HTTPAuthorizationCredentials | None,
+        session: Session,
+    ) -> AuthenticatedUser:
+        if credentials is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        use_case = self._authenticate_user_use_case_provider(request, session)
+        try:
+            user = use_case.execute(credentials.credentials)
+        except AuthenticationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials.",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
+        return user
+
+
+class RequireGlobalAdminDependency:
+    def __init__(self, current_user_dependency: CurrentUserDependency) -> None:
+        self._current_user_dependency = current_user_dependency
+
+    def __call__(
+        self,
+        request: Request,
+        credentials: HTTPAuthorizationCredentials | None = Depends(
+            CurrentUserDependency._bearer_scheme
+        ),
+        session: Session = Depends(database_session_dependency),
+    ) -> AuthenticatedUser:
+        user = self._current_user_dependency.resolve(request, credentials, session)
+        if not user.is_active or user.global_role is not GlobalRole.ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Global ADMIN role required.",
+            )
+        return user
