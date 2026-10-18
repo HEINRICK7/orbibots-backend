@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.bootstrap import model_registry
 from app.bootstrap.authentication import AuthenticationUseCaseProvider
 from app.bootstrap.container import create_container
 from app.contexts.authentication.infrastructure.bootstrap_admin import BootstrapAdmin
@@ -19,6 +20,7 @@ def create_app(
     session_factory: sessionmaker[Session] | None = None,
 ) -> FastAPI:
     app_settings = settings or Settings.from_environment()
+    model_registry.Base.metadata
     engine: Engine | None = None
     app_session_factory = session_factory
 
