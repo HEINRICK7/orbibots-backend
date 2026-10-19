@@ -112,24 +112,52 @@ and conflicting inactive accounts or memberships cause an explicit error.
 ## Project layout
 
 ```text
-app/
-├── src/
-│   ├── application/{configuration,gateways,usecases}/
-│   ├── domain/{config,dtos,entities,interfaces}/
-│   └── infra/{adapters,controllers,di,entrypoints,exceptions,setup}/
-├── tests/
-│   ├── integration/{api,infrastructure,health_check}/
-│   └── unitary/{application,domain,infra}/
-├── requirements.txt
-├── requirements_tests.txt
-├── pytest.ini
-├── logging.conf
-├── Dockerfile
-└── run.py
-
-migrations/
-deploy/
-alembic.ini
+orbibots-backend/
+├── .github/
+├── app/
+│   ├── src/
+│   │   ├── application/
+│   │   │   ├── configuration/
+│   │   │   ├── gateways/
+│   │   │   └── usecases/
+│   │   ├── domain/
+│   │   │   ├── config/
+│   │   │   ├── dtos/
+│   │   │   ├── entities/
+│   │   │   └── interfaces/
+│   │   │       ├── adapters/
+│   │   │       ├── gateways/
+│   │   │       └── usecases/
+│   │   └── infra/
+│   │       ├── adapters/
+│   │       ├── controllers/
+│   │       ├── di/
+│   │       ├── entrypoints/
+│   │       ├── exceptions/
+│   │       └── setup/
+│   ├── tests/
+│   │   ├── unitary/
+│   │   │   ├── application/
+│   │   │   ├── domain/
+│   │   │   └── infra/
+│   │   └── integration/
+│   │       ├── api/
+│   │       ├── health_check/
+│   │       └── infrastructure/
+│   ├── Dockerfile
+│   ├── logging.conf
+│   ├── pytest.ini
+│   ├── requirements.txt
+│   ├── requirements_tests.txt
+│   └── run.py
+├── deploy/
+├── migrations/
+├── .dockerignore
+├── .env.example
+├── .gitignore
+├── alembic.ini
+├── docker-compose.yml
+└── README.md
 ```
 
 Dependencies point inward: `domain/` defines entities, DTOs, and interfaces;
