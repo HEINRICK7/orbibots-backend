@@ -4,8 +4,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.platform.config import load_environment
-from app.bootstrap import model_registry
+from src.bootstrap import model_registry
+from src.infrastructure.config.settings import load_environment
 
 
 config = context.config

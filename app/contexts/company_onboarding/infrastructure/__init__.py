@@ -1,1 +1,0 @@
-"""Company onboarding persistence adapters."""

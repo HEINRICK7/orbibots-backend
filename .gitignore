@@ -5,4 +5,6 @@ openspec
 skills-lock.json
 .env.*
 !.env.example
-__pycache__
+__pycache__/
+*.py[cod]
+.pytest_cache/
