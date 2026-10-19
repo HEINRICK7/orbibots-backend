@@ -4,6 +4,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from src.domain.authentication.errors import GlobalAdminGrantError
+from src.domain.authentication.policies import GlobalAdminAllowlist
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -44,10 +47,18 @@ class Settings:
             raise ConfigurationError(
                 "BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD must be set together."
             )
-        if password and len(password) < 8:
+        if password and len(password) < 20:
             raise ConfigurationError(
-                "BOOTSTRAP_ADMIN_PASSWORD must contain at least 8 characters."
+                "BOOTSTRAP_ADMIN_PASSWORD must contain at least 20 characters."
             )
+        if email:
+            try:
+                GlobalAdminAllowlist(self.global_admin_allowed_emails).ensure_allowed(email)
+            except GlobalAdminGrantError as exc:
+                raise ConfigurationError(
+                    "BOOTSTRAP_ADMIN_EMAIL must be included in "
+                    "GLOBAL_ADMIN_ALLOWED_EMAILS."
+                ) from exc
         if self.app_env in {"staging", "production"}:
             if not self.database_url:
                 raise ConfigurationError("DATABASE_URL is required in staging and production.")

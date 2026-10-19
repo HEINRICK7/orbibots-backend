@@ -11,9 +11,12 @@ class GlobalAdminAllowlist:
         normalized_emails = tuple(
             self.normalize_email(email) for email in allowed_emails
         )
-        if len(normalized_emails) != 2 or len(set(normalized_emails)) != 2:
+        if (
+            not 1 <= len(normalized_emails) <= 2
+            or len(set(normalized_emails)) != len(normalized_emails)
+        ):
             raise GlobalAdminGrantError(
-                "Global-admin allowlist must contain exactly two distinct email addresses."
+                "Global-admin allowlist must contain one or two distinct email addresses."
             )
         self._allowed_emails = frozenset(normalized_emails)
 

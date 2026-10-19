@@ -46,6 +46,7 @@ def create_app(
                     email=app_settings.bootstrap_admin_email,
                     password=app_settings.bootstrap_admin_password,
                     name=app_settings.bootstrap_admin_name,
+                    allowed_admin_emails=app_settings.global_admin_allowed_emails,
                 )
         yield
         if engine is not None:

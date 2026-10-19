@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import Mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -10,9 +10,12 @@ from src.application.authentication.use_cases.authenticate_user import (
     AuthenticateUserUseCase,
 )
 from src.application.authentication.use_cases.login import LoginUseCase
+from src.domain.access.company_access import CompanyAccess
+from src.domain.access.company_role import CompanyRole
 from src.domain.authentication.errors import AuthenticationError
 from src.domain.authentication.global_role import GlobalRole
 from src.domain.authentication.user import AuthenticatedUser
+from src.domain.company_onboarding.membership_scope import MembershipScope
 from src.presentation.api.authentication.dependencies import (
     database_session_dependency,
 )
@@ -50,6 +53,16 @@ class AuthenticationPresentationTests(unittest.TestCase):
                 Depends(self.authentication_router.require_global_admin)
             ],
         )
+
+        def company_operation(
+            company_id: UUID,
+            user: AuthenticatedUser = Depends(
+                self.authentication_router.require_company_admin
+            ),
+        ) -> dict[str, str]:
+            return {"company_id": str(company_id), "user_id": str(user.id)}
+
+        self.app.add_api_route("/companies/{company_id}", company_operation)
         self.app.dependency_overrides[database_session_dependency] = (
             self.session_dependency
         )
@@ -60,6 +73,15 @@ class AuthenticationPresentationTests(unittest.TestCase):
             name="Test User",
             email="test@example.test",
             is_active=True,
+            global_role=GlobalRole.ADMIN,
+            company_accesses=(
+                CompanyAccess(
+                    company_id=uuid4(),
+                    company_name="Empresa A",
+                    role=CompanyRole.COMPANY_ADMIN,
+                    scope=MembershipScope.COMPANY,
+                ),
+            ),
         )
         self.login_use_case.execute.return_value = IssuedAccessToken(
             encoded="signed-token",
@@ -87,6 +109,18 @@ class AuthenticationPresentationTests(unittest.TestCase):
         )
         self.assertEqual(user_response.status_code, 200)
         self.assertEqual(user_response.json()["id"], str(user.id))
+        self.assertEqual(user_response.json()["global_role"], "ADMIN")
+        self.assertEqual(
+            user_response.json()["company_accesses"],
+            [
+                {
+                    "company_id": str(user.company_accesses[0].company_id),
+                    "company_name": "Empresa A",
+                    "role": "COMPANY_ADMIN",
+                    "scope": "COMPANY",
+                }
+            ],
+        )
         self.login_use_case_provider.assert_called_once()
         self.authenticate_user_use_case_provider.assert_called_once()
         self.assertIs(
@@ -228,6 +262,75 @@ class AuthenticationPresentationTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 401)
+
+    def test_company_admin_dependency_checks_membership_and_company_id(self) -> None:
+        company_id = uuid4()
+        company_admin = AuthenticatedUser(
+            id=uuid4(),
+            name="Company Admin",
+            email="company-admin@example.test",
+            is_active=True,
+            company_accesses=(
+                CompanyAccess(
+                    company_id=company_id,
+                    company_name="Empresa A",
+                    role=CompanyRole.COMPANY_ADMIN,
+                    scope=MembershipScope.COMPANY,
+                ),
+            ),
+        )
+        editor = AuthenticatedUser(
+            id=uuid4(),
+            name="Agent Editor",
+            email="editor@example.test",
+            is_active=True,
+            company_accesses=(
+                CompanyAccess(
+                    company_id=company_id,
+                    company_name="Empresa A",
+                    role=CompanyRole.AGENT_EDITOR,
+                    scope=MembershipScope.ASSIGNED_AGENTS,
+                ),
+            ),
+        )
+        global_admin = AuthenticatedUser(
+            id=uuid4(),
+            name="Global Admin",
+            email="global-admin@example.test",
+            is_active=True,
+            global_role=GlobalRole.ADMIN,
+        )
+        self.authenticate_user_use_case.execute.side_effect = [
+            company_admin,
+            company_admin,
+            editor,
+            global_admin,
+        ]
+
+        with TestClient(self.app) as client:
+            allowed = client.get(
+                f"/companies/{company_id}",
+                headers={"Authorization": "Bearer valid-token"},
+            )
+            wrong_company = client.get(
+                f"/companies/{uuid4()}",
+                headers={"Authorization": "Bearer valid-token"},
+            )
+            editor_response = client.get(
+                f"/companies/{company_id}",
+                headers={"Authorization": "Bearer valid-token"},
+            )
+            global_admin_response = client.get(
+                f"/companies/{company_id}",
+                headers={"Authorization": "Bearer valid-token"},
+            )
+            missing_token = client.get(f"/companies/{company_id}")
+
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(wrong_company.status_code, 403)
+        self.assertEqual(editor_response.status_code, 403)
+        self.assertEqual(global_admin_response.status_code, 403)
+        self.assertEqual(missing_token.status_code, 401)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,2 @@
+class AccessDeniedError(PermissionError):
+    pass

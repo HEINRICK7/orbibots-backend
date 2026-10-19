@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import jwt
 from fastapi import FastAPI
@@ -12,7 +13,8 @@ from sqlalchemy.pool import StaticPool
 from src.application.authentication.use_cases.login import LoginUseCase
 from src.bootstrap.model_registry import Base
 from src.bootstrap.startup import create_app
-from src.domain.authentication.errors import AuthenticationError
+from src.domain.company_onboarding.membership_scope import MembershipScope
+from src.domain.authentication.errors import AuthenticationError, GlobalAdminGrantError
 from src.infrastructure.authentication.bootstrap_admin import BootstrapAdmin
 from src.infrastructure.authentication.models import UserRecord
 from src.infrastructure.authentication.password_hashing import (
@@ -22,6 +24,7 @@ from src.infrastructure.authentication.repository import (
     SqlAlchemyUserAuthenticationRepository,
 )
 from src.infrastructure.authentication.tokens import JwtAccessTokenProvider
+from src.infrastructure.company_onboarding.models import Company, Membership
 from src.infrastructure.config.settings import ConfigurationError, Settings
 
 
@@ -177,6 +180,95 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(response.json()["email"], "test@example.test")
         self.assertNotIn("password_hash", response.json())
 
+    def test_auth_me_returns_global_role_and_only_active_company_accesses(self) -> None:
+        with self.session_factory() as session:
+            user = UserRecord(
+                name="Role Test User",
+                email=f"role-test-{uuid4()}@example.test",
+                global_role="ADMIN",
+                status="ACTIVE",
+            )
+            active_admin_company = Company(
+                name="Active Admin Company",
+                status="ACTIVE",
+            )
+            active_editor_company = Company(
+                name="Active Editor Company",
+                status="ACTIVE",
+            )
+            inactive_membership_company = Company(
+                name="Inactive Membership Company",
+                status="ACTIVE",
+            )
+            suspended_company = Company(
+                name="Suspended Company",
+                status="SUSPENDED",
+            )
+            session.add_all(
+                [
+                    user,
+                    active_admin_company,
+                    active_editor_company,
+                    inactive_membership_company,
+                    suspended_company,
+                ]
+            )
+            session.flush()
+            session.add_all(
+                [
+                    Membership(
+                        company_id=active_admin_company.id,
+                        user_id=user.id,
+                        role="COMPANY_ADMIN",
+                        scope=MembershipScope.COMPANY,
+                        status="ACTIVE",
+                    ),
+                    Membership(
+                        company_id=active_editor_company.id,
+                        user_id=user.id,
+                        role="AGENT_EDITOR",
+                        scope=MembershipScope.ASSIGNED_AGENTS,
+                        status="ACTIVE",
+                    ),
+                    Membership(
+                        company_id=inactive_membership_company.id,
+                        user_id=user.id,
+                        role="COMPANY_ADMIN",
+                        scope=MembershipScope.COMPANY,
+                        status="SUSPENDED",
+                    ),
+                    Membership(
+                        company_id=suspended_company.id,
+                        user_id=user.id,
+                        role="COMPANY_ADMIN",
+                        scope=MembershipScope.COMPANY,
+                        status="ACTIVE",
+                    ),
+                ]
+            )
+            session.commit()
+            token = JwtAccessTokenProvider(self.settings).issue(user.id).encoded
+
+        with self.create_client() as client:
+            response = client.get(
+                "/auth/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["global_role"], "ADMIN")
+        self.assertEqual(
+            {
+                (access["company_name"], access["role"], access["scope"])
+                for access in body["company_accesses"]
+            },
+            {
+                ("Active Admin Company", "COMPANY_ADMIN", "COMPANY"),
+                ("Active Editor Company", "AGENT_EDITOR", "ASSIGNED_AGENTS"),
+            },
+        )
+
     def test_missing_malformed_and_expired_tokens_are_rejected(self) -> None:
         expired_token = jwt.encode(
             {
@@ -210,12 +302,14 @@ class AuthenticationTests(unittest.TestCase):
                 email="Admin@Example.test",
                 password="correct horse battery staple",
                 name="Administrador",
+                allowed_admin_emails=("admin@example.test",),
             )
             admin.ensure(
                 session,
                 email="admin@example.test",
                 password="another-password",
                 name="Outro",
+                allowed_admin_emails=("admin@example.test",),
             )
             stored = session.scalar(
                 select(UserRecord).where(UserRecord.email == "admin@example.test")
@@ -223,12 +317,88 @@ class AuthenticationTests(unittest.TestCase):
 
         self.assertIsNotNone(stored)
         self.assertEqual(stored.name, "Administrador")
+        self.assertEqual(stored.global_role, "ADMIN")
         self.assertTrue(
             PwdlibPasswordVerifier(PasswordHash.recommended()).verify(
                 "correct horse battery staple",
                 stored.password_hash,
             )
         )
+
+    def test_bootstrap_admin_must_be_allowlisted_before_a_user_is_created(self) -> None:
+        with self.session_factory() as session:
+            with self.assertRaises(GlobalAdminGrantError):
+                BootstrapAdmin().ensure(
+                    session,
+                    email="unapproved@example.test",
+                    password="correct horse battery staple",
+                    name="Unapproved",
+                    allowed_admin_emails=("approved@example.test",),
+                )
+            stored = session.scalar(
+                select(UserRecord).where(UserRecord.email == "unapproved@example.test")
+            )
+
+        self.assertIsNone(stored)
+
+    def test_bootstrap_admin_promotes_existing_user_without_resetting_password(self) -> None:
+        email = "preexisting-bootstrap@example.test"
+        original_password = "original-existing-password"
+        with self.session_factory() as session:
+            session.add(
+                UserRecord(
+                    name="Existing User",
+                    email=email,
+                    password_hash=self.password_hash.hash(original_password),
+                    status="ACTIVE",
+                )
+            )
+            session.commit()
+            BootstrapAdmin().ensure(
+                session,
+                email=email,
+                password="must-not-replace-the-existing-password",
+                name="New Name Must Not Replace Existing Name",
+                allowed_admin_emails=(email,),
+            )
+            stored = session.scalar(
+                select(UserRecord).where(UserRecord.email == email)
+            )
+
+        self.assertEqual(stored.global_role, "ADMIN")
+        self.assertEqual(stored.name, "Existing User")
+        self.assertTrue(
+            PwdlibPasswordVerifier(PasswordHash.recommended()).verify(
+                original_password,
+                stored.password_hash,
+            )
+        )
+
+    def test_startup_bootstrap_can_log_in_as_global_admin(self) -> None:
+        email = f"bootstrap-{uuid4()}@example.test"
+        password = "a-strong-development-bootstrap-password"
+        settings = Settings(
+            app_env="test",
+            jwt_secret_key="test-only-secret-with-at-least-32-bytes",
+            bootstrap_admin_email=email,
+            bootstrap_admin_password=password,
+            bootstrap_admin_name="Bootstrap Admin",
+            global_admin_allowed_emails=(email,),
+        )
+
+        with TestClient(create_app(settings, session_factory=self.session_factory)) as client:
+            login = client.post(
+                "/auth/login",
+                json={"email": email, "password": password},
+            )
+            self.assertEqual(login.status_code, 200)
+            me = client.get(
+                "/auth/me",
+                headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+            )
+
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.json()["global_role"], "ADMIN")
 
     def test_production_configuration_requires_database_and_signing_secret(self) -> None:
         with self.assertRaises(ConfigurationError):

@@ -62,6 +62,16 @@ This change does not provide account enrollment or password setup. Existing
 users have a nullable password hash and cannot log in until a separate secure
 provisioning flow sets one; no default password is created.
 
+### Local development administrator
+
+For a single local development administrator, set `BOOTSTRAP_ADMIN_EMAIL`,
+`BOOTSTRAP_ADMIN_PASSWORD`, and `GLOBAL_ADMIN_ALLOWED_EMAILS` to the same email
+in the ignored `.env` file. The password must contain at least 20 characters.
+On API startup, the backend creates the account if it is missing and grants
+global `ADMIN` only after validating the email against the allowlist. The
+bootstrap flow does not replace an existing password. Do not use this
+development bootstrap configuration in production.
+
 ## Initial company administrators
 
 `COMPANY_ADMIN` is a company-scoped membership role. Global platform access is
@@ -70,13 +80,14 @@ platform-administration dependency. A global role does not create or bypass
 company memberships.
 
 The migration adds nullable `users.global_role`, constrained to `ADMIN` or
-`NULL`. Set `INITIAL_COMPANY_NAME`, both initial-admin names and emails,
-`GLOBAL_ADMIN_ALLOWED_EMAILS` to those exact two email identities (comma
-separated), and two distinct passwords in the ignored local `.env` file. The
-allowlist is trusted application configuration, not a user-editable database
-setting. Downgrading the global-role migration removes all role assignments;
-confirm the impact before rolling it back. Each password must contain at least
-20 characters. Generate a separate random password for each user:
+`NULL`. For the initial company setup, set `INITIAL_COMPANY_NAME`, both
+initial-admin names and emails, `GLOBAL_ADMIN_ALLOWED_EMAILS` to those exact
+two email identities (comma separated), and two distinct passwords in the
+ignored local `.env` file. The allowlist is trusted application configuration,
+not a user-editable database setting. Downgrading the global-role migration
+removes all role assignments; confirm the impact before rolling it back. Each
+password must contain at least 20 characters. Generate a separate random
+password for each user:
 
 ```powershell
 .\venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -103,9 +114,11 @@ and conflicting inactive accounts or memberships cause an explicit error.
 ```text
 src/
 ├── domain/
+│   ├── access/
 │   ├── authentication/
 │   └── company_onboarding/
 ├── application/
+│   ├── access/
 │   └── authentication/
 │       ├── use_cases/
 │       └── ports/
@@ -135,6 +148,28 @@ SQLAlchemy, Punq, or cryptographic libraries. Infrastructure implements
 application ports declared as `Protocol`s. Presentation translates HTTP and
 depends on use cases; `src/bootstrap/` wires those use cases to concrete
 adapters, and `src/main.py` exposes `app = create_app()`.
+
+## Access roles
+
+Global and company access are separate grants:
+
+- `users.global_role = ADMIN` grants access to platform administration (`/admin`).
+- An active `COMPANY_ADMIN` membership in an active company grants access only
+  to that company's area (`/app`). `AGENT_EDITOR` is a company membership role,
+  not a global administrator role.
+- A global administrator is not automatically authorized for every company.
+  A company-scoped operation must check the requested company against the user's
+  active memberships.
+
+`GET /auth/me` returns `global_role` and the active `company_accesses`. FastAPI
+dependencies at the presentation boundary call use cases in
+`src/application/access/`; those use cases apply the rules in
+`src/domain/access/policy.py`. Attach `require_global_admin` to platform
+operations and `require_company_admin` to company operations whose route
+includes a `company_id`. The current backend has no administrative
+business-operation routes yet; those routes must apply the appropriate
+dependency when added. Frontend route guards control navigation only and do not
+replace backend authorization.
 
 Start the isolated PostgreSQL test database and wait for its health check:
 
