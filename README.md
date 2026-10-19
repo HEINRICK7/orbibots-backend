@@ -46,13 +46,7 @@ docker compose up -d --wait postgres
 Start the development server:
 
 ```powershell
-.\venv\Scripts\python.exe -m uvicorn app.src.main:app --reload
-```
-
-Or run via `run.py`:
-
-```powershell
-.\venv\Scripts\python.exe run.py
+.\venv\Scripts\python.exe -m uvicorn src.main:app --reload
 ```
 
 The server is available at `http://127.0.0.1:8000`; interactive API
@@ -93,7 +87,7 @@ Run the explicit provisioning command after PostgreSQL is running and the
 Alembic migrations have been applied:
 
 ```powershell
-.\venv\Scripts\python.exe -m app.src.bootstrap.initial_admins
+.\venv\Scripts\python.exe -m src.bootstrap.initial_admins
 ```
 
 The command creates the company as `ACTIVE`, creates missing users with
@@ -107,7 +101,7 @@ and conflicting inactive accounts or memberships cause an explicit error.
 ## Project layout
 
 ```text
-app/src/
+src/
 ├── domain/
 │   ├── authentication/
 │   └── company_onboarding/
@@ -139,8 +133,8 @@ tests/
 Dependencies point inward: domain and application code do not import FastAPI,
 SQLAlchemy, Punq, or cryptographic libraries. Infrastructure implements
 application ports declared as `Protocol`s. Presentation translates HTTP and
-depends on use cases; `app/src/bootstrap/` wires those use cases to concrete
-adapters, and `app/src/main.py` exposes `app = create_app()`.
+depends on use cases; `src/bootstrap/` wires those use cases to concrete
+adapters, and `src/main.py` exposes `app = create_app()`.
 
 Start the isolated PostgreSQL test database and wait for its health check:
 

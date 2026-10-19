@@ -9,20 +9,20 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.src.application.authentication.use_cases.login import LoginUseCase
-from app.src.bootstrap.model_registry import Base
-from app.src.bootstrap.startup import create_app
-from app.src.domain.authentication.errors import AuthenticationError
-from app.src.infrastructure.authentication.bootstrap_admin import BootstrapAdmin
-from app.src.infrastructure.authentication.models import UserRecord
-from app.src.infrastructure.authentication.password_hashing import (
+from src.application.authentication.use_cases.login import LoginUseCase
+from src.bootstrap.model_registry import Base
+from src.bootstrap.startup import create_app
+from src.domain.authentication.errors import AuthenticationError
+from src.infrastructure.authentication.bootstrap_admin import BootstrapAdmin
+from src.infrastructure.authentication.models import UserRecord
+from src.infrastructure.authentication.password_hashing import (
     PwdlibPasswordVerifier,
 )
-from app.src.infrastructure.authentication.repository import (
+from src.infrastructure.authentication.repository import (
     SqlAlchemyUserAuthenticationRepository,
 )
-from app.src.infrastructure.authentication.tokens import JwtAccessTokenProvider
-from app.src.infrastructure.config.settings import ConfigurationError, Settings
+from src.infrastructure.authentication.tokens import JwtAccessTokenProvider
+from src.infrastructure.config.settings import ConfigurationError, Settings
 
 
 class AuthenticationTests(unittest.TestCase):
@@ -104,7 +104,7 @@ class AuthenticationTests(unittest.TestCase):
         )
 
     def test_asgi_entry_point_is_inside_app_package(self) -> None:
-        from app.src.main import app
+        from src.main import app
 
         self.assertIsInstance(app, FastAPI)
 
@@ -260,7 +260,7 @@ class AuthenticationTests(unittest.TestCase):
     def test_database_sessions_are_created_per_dependency_use(self) -> None:
         app = create_app(self.settings, session_factory=self.session_factory)
         request = type("Request", (), {"app": app})()
-        from app.src.presentation.api.authentication.dependencies import (
+        from src.presentation.api.authentication.dependencies import (
             database_session_dependency,
         )
 

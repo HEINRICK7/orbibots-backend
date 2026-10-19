@@ -1,16 +1,16 @@
 import unittest
 from uuid import UUID, uuid4
 
-from app.src.application.authentication.ports import (
+from src.application.authentication.ports import (
     IssuedAccessToken,
     UserCredentials,
 )
-from app.src.application.authentication.use_cases.authenticate_user import (
+from src.application.authentication.use_cases.authenticate_user import (
     AuthenticateUserUseCase,
 )
-from app.src.application.authentication.use_cases.login import LoginUseCase
-from app.src.domain.authentication.errors import AuthenticationError
-from app.src.domain.authentication.user import AuthenticatedUser
+from src.application.authentication.use_cases.login import LoginUseCase
+from src.domain.authentication.errors import AuthenticationError
+from src.domain.authentication.user import AuthenticatedUser
 
 
 class InMemoryUserRepository:

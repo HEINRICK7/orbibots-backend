@@ -5,18 +5,18 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from app.src.application.authentication.ports import IssuedAccessToken
-from app.src.application.authentication.use_cases.authenticate_user import (
+from src.application.authentication.ports import IssuedAccessToken
+from src.application.authentication.use_cases.authenticate_user import (
     AuthenticateUserUseCase,
 )
-from app.src.application.authentication.use_cases.login import LoginUseCase
-from app.src.domain.authentication.errors import AuthenticationError
-from app.src.domain.authentication.global_role import GlobalRole
-from app.src.domain.authentication.user import AuthenticatedUser
-from app.src.presentation.api.authentication.dependencies import (
+from src.application.authentication.use_cases.login import LoginUseCase
+from src.domain.authentication.errors import AuthenticationError
+from src.domain.authentication.global_role import GlobalRole
+from src.domain.authentication.user import AuthenticatedUser
+from src.presentation.api.authentication.dependencies import (
     database_session_dependency,
 )
-from app.src.presentation.api.authentication.router import AuthenticationRouter
+from src.presentation.api.authentication.router import AuthenticationRouter
 
 
 class StubSessionDependency:

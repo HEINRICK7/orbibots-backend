@@ -6,18 +6,18 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.src.bootstrap.initial_admins import (
+from src.bootstrap.initial_admins import (
     InitialAdminAccount,
     InitialAdminProvisioner,
 )
-from app.src.bootstrap.model_registry import Base
-from app.src.domain.authentication.global_role import GlobalRole
-from app.src.infrastructure.authentication.models import UserRecord
-from app.src.infrastructure.company_onboarding.models import (
+from src.bootstrap.model_registry import Base
+from src.domain.authentication.global_role import GlobalRole
+from src.infrastructure.authentication.models import UserRecord
+from src.infrastructure.company_onboarding.models import (
     Company,
     Membership,
 )
-from app.src.infrastructure.config.settings import ConfigurationError
+from src.infrastructure.config.settings import ConfigurationError
 
 
 class InitialAdminProvisionerTests(unittest.TestCase):

@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-SRC_ROOT = PROJECT_ROOT / "app" / "src"
+SRC_ROOT = PROJECT_ROOT / "src"
 PROHIBITED_LAYER_IMPORTS = {
     "fastapi",
     "sqlalchemy",
@@ -17,7 +17,7 @@ PROHIBITED_LAYER_IMPORTS = {
 
 class ArchitectureBoundaryTests(unittest.TestCase):
     def test_context_models_preserve_database_tables_and_indexes(self) -> None:
-        from app.src.bootstrap.model_registry import Base
+        from src.bootstrap.model_registry import Base
 
         self.assertEqual(
             set(Base.metadata.tables),
@@ -54,9 +54,9 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                         top_module = module.split(".", maxsplit=1)[0]
                         if (
                             top_module in PROHIBITED_LAYER_IMPORTS
-                            or module.startswith("app.src.infrastructure")
-                            or module.startswith("app.src.presentation")
-                            or module.startswith("app.src.bootstrap")
+                            or module.startswith("src.infrastructure")
+                            or module.startswith("src.presentation")
+                            or module.startswith("src.bootstrap")
                         ):
                             violations.append(
                                 f"{source_path.relative_to(PROJECT_ROOT)}:{node.lineno} "
@@ -72,8 +72,8 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom) and node.module:
                     if (
-                        node.module.startswith("app.src.bootstrap")
-                        or node.module.startswith("app.src.main")
+                        node.module.startswith("src.bootstrap")
+                        or node.module.startswith("src.main")
                     ):
                         violations.append(
                             f"{source_path.relative_to(PROJECT_ROOT)}:{node.lineno} "
@@ -83,15 +83,27 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertEqual(violations, [])
 
     def test_presentation_does_not_depend_on_concrete_infrastructure(self) -> None:
+        prohibited_presentation_imports = PROHIBITED_LAYER_IMPORTS - {"fastapi"}
         violations: list[str] = []
         for source_path in (SRC_ROOT / "presentation").rglob("*.py"):
             tree = ast.parse(source_path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom) and node.module:
-                    if ".infrastructure" in node.module:
+                if isinstance(node, ast.Import):
+                    modules = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    modules = [node.module]
+                else:
+                    continue
+                for module in modules:
+                    top_module = module.split(".", maxsplit=1)[0]
+                    if (
+                        ".infrastructure" in module
+                        or module.startswith("src.infrastructure")
+                        or top_module in prohibited_presentation_imports
+                    ):
                         violations.append(
                             f"{source_path.relative_to(PROJECT_ROOT)}:{node.lineno} "
-                            f"imports {node.module}"
+                            f"imports {module}"
                         )
 
         self.assertEqual(violations, [])

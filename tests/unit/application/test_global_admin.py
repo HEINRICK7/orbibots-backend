@@ -3,15 +3,15 @@ import unittest
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
-from app.src.application.authentication.ports import GlobalAdminGrantRepository
-from app.src.application.authentication.use_cases.grant_global_admin import (
+from src.application.authentication.ports import GlobalAdminGrantRepository
+from src.application.authentication.use_cases.grant_global_admin import (
     GlobalAdminAllowlist,
     GrantGlobalAdminUseCase,
 )
-from app.src.domain.authentication.errors import GlobalAdminGrantError
-from app.src.domain.authentication.global_role import GlobalRole
-from app.src.domain.authentication.user import AuthenticatedUser
-from app.src.infrastructure.config.settings import Settings
+from src.domain.authentication.errors import GlobalAdminGrantError
+from src.domain.authentication.global_role import GlobalRole
+from src.domain.authentication.user import AuthenticatedUser
+from src.infrastructure.config.settings import Settings
 
 
 class GlobalAdminTests(unittest.TestCase):

@@ -9,13 +9,13 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DataError, IntegrityError, SQLAlchemyError
 
-from app.src.infrastructure.authentication.models import UserRecord
-from app.src.infrastructure.company_onboarding.models import (
+from src.infrastructure.authentication.models import UserRecord
+from src.infrastructure.company_onboarding.models import (
     Company,
     Invitation,
     Membership,
 )
-from app.src.infrastructure.config.settings import load_environment
+from src.infrastructure.config.settings import load_environment
 
 
 ONBOARDING_TABLES = {
