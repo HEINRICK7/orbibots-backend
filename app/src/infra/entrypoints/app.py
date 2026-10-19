@@ -13,8 +13,9 @@ from app.src.application.usecases.authorize_access import (
 from app.src.infra.di.authentication import AuthenticationUseCaseProvider
 from app.src.infra.di.container import create_container
 from app.src.infra.exceptions.exception_handler import ExceptionHandler
-from app.src.infra.setup.bootstrap_admin import BootstrapAdmin
+from app.src.infra.di.bootstrap_admin import build_bootstrap_admin
 from app.src.infra.setup import model_registry
+from app.src.infra.setup.logging_config import configure_logging
 from app.src.infra.setup.settings import Settings
 from app.src.infra.controllers.authentication.router import AuthenticationRouter
 from app.src.infra.controllers.health_check.router import HealthCheckRouter
@@ -25,6 +26,7 @@ def create_app(
     *,
     session_factory: sessionmaker[Session] | None = None,
 ) -> FastAPI:
+    configure_logging()
     app_settings = settings or Settings.from_environment()
     model_registry.Base.metadata
     engine: Engine | None = None
@@ -46,12 +48,13 @@ def create_app(
             and app_settings.bootstrap_admin_password
         ):
             with app_session_factory() as session:
-                BootstrapAdmin().ensure(
+                build_bootstrap_admin(
                     session,
+                    app_settings.global_admin_allowed_emails,
+                ).ensure(
                     email=app_settings.bootstrap_admin_email,
                     password=app_settings.bootstrap_admin_password,
                     name=app_settings.bootstrap_admin_name,
-                    allowed_admin_emails=app_settings.global_admin_allowed_emails,
                 )
         yield
         if engine is not None:
@@ -78,13 +81,13 @@ def create_app(
     container = create_container(app_settings)
     application.state.container = container
     application.state.session_factory = app_session_factory
-    authentication_use_cases = AuthenticationUseCaseProvider(container)
+    authentication_use_cases = container.resolve(AuthenticationUseCaseProvider)
     application.include_router(
         AuthenticationRouter(
             authentication_use_cases.login,
             authentication_use_cases.authenticate_user,
-            RequireGlobalAdminUseCase(),
-            RequireCompanyAdminUseCase(),
+            container.resolve(RequireGlobalAdminUseCase),
+            container.resolve(RequireCompanyAdminUseCase),
         ).router,
         prefix="/auth",
         tags=["authentication"],

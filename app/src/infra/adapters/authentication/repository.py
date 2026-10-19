@@ -3,7 +3,10 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.src.domain.dtos.authentication import UserCredentials
+from app.src.domain.dtos.authentication import (
+    GlobalAdminGrantCandidate,
+    UserCredentials,
+)
 from app.src.domain.entities.authentication.status import UserStatus
 from app.src.domain.entities.access.company_access import CompanyAccess
 from app.src.domain.entities.access.company_role import CompanyRole
@@ -14,10 +17,17 @@ from app.src.domain.entities.company_onboarding.status import (
     CompanyStatus,
     MembershipStatus,
 )
+from app.src.domain.interfaces.gateways.authentication import (
+    GlobalAdminGrantRepository,
+    UserAuthenticationRepository,
+)
 from app.src.infra.adapters.persistence.authentication_models import UserRecord
 
 
-class SqlAlchemyUserAuthenticationRepository:
+class SqlAlchemyUserAuthenticationRepository(
+    UserAuthenticationRepository,
+    GlobalAdminGrantRepository,
+):
     def __init__(self, session: Session) -> None:
         self._session = session
 
@@ -37,18 +47,26 @@ class SqlAlchemyUserAuthenticationRepository:
         user = self._session.get(UserRecord, user_id)
         return self._to_domain(user) if user is not None else None
 
-    def grant_global_admin(self, email: str) -> AuthenticatedUser:
+    def get_global_admin_grant_candidate(
+        self,
+        email: str,
+    ) -> GlobalAdminGrantCandidate | None:
         user = self._session.scalar(
             select(UserRecord).where(func.lower(UserRecord.email) == email)
         )
-        if (
-            user is None
-            or UserStatus(user.status) is not UserStatus.ACTIVE
-            or user.password_hash is None
-        ):
-            raise GlobalAdminGrantError(
-                "Only an active user with a password hash can receive global ADMIN."
-            )
+        if user is None:
+            return None
+        return GlobalAdminGrantCandidate(
+            is_active=UserStatus(user.status) is UserStatus.ACTIVE,
+            has_password=user.password_hash is not None,
+        )
+
+    def grant_global_admin(self, email: str) -> AuthenticatedUser | None:
+        user = self._session.scalar(
+            select(UserRecord).where(func.lower(UserRecord.email) == email)
+        )
+        if user is None:
+            return None
         user.global_role = GlobalRole.ADMIN.value
         self._session.flush()
         return self._to_domain(user)

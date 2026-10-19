@@ -1,4 +1,8 @@
+import asyncio
+import json
 import unittest
+
+from starlette.requests import Request
 
 from app.src.domain.entities.access.errors import AccessDeniedError
 from app.src.domain.entities.authentication.errors import (
@@ -35,6 +39,35 @@ class ExceptionHandlerTests(unittest.TestCase):
         self.assertIs(mapping.code, ErrorCode.INTERNAL_ERROR)
         self.assertEqual(mapping.status_code, 500)
         self.assertEqual(mapping.safe_detail, "An unexpected error occurred.")
+
+    def test_access_denial_does_not_expose_internal_exception_text(self) -> None:
+        request = Request(
+            {
+                "type": "http",
+                "http_version": "1.1",
+                "method": "GET",
+                "scheme": "http",
+                "path": "/admin",
+                "raw_path": b"/admin",
+                "query_string": b"",
+                "headers": [],
+                "server": ("test", 80),
+                "client": ("test", 1),
+            }
+        )
+
+        response = asyncio.run(
+            ExceptionHandler().handle(
+                request,
+                AccessDeniedError("internal identifier and private reason"),
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            json.loads(response.body),
+            {"detail": "Insufficient permissions."},
+        )
 
 
 if __name__ == "__main__":

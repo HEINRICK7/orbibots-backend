@@ -1,42 +1,23 @@
 import os
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
 from pwdlib import PasswordHash
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.src.application.usecases.grant_global_admin import (
-    GlobalAdminAllowlist,
-    GrantGlobalAdminUseCase,
+from app.src.application.usecases.provision_initial_admins import (
+    InitialAdminProvisioningError,
 )
-from app.src.domain.entities.access.company_role import CompanyRole
-from app.src.domain.entities.authentication.status import UserStatus
-from app.src.domain.entities.company_onboarding.status import (
-    CompanyStatus,
-    MembershipStatus,
+from app.src.domain.dtos.initial_admins import InitialAdminAccount
+from app.src.infra.adapters.authentication.password_hashing import PasswordHashFactory
+from app.src.infra.di.initial_admins import (
+    build_initial_admin_provisioning_use_case,
 )
-from app.src.infra.adapters.persistence.authentication_models import UserRecord
-from app.src.infra.adapters.authentication.password_hashing import (
-    PasswordHashFactory,
-)
-from app.src.infra.adapters.authentication.repository import (
-    SqlAlchemyUserAuthenticationRepository,
-)
-from app.src.infra.adapters.persistence.company_onboarding_models import Company, Membership
-from app.src.infra.setup.settings import ConfigurationError, Settings
-
-
-@dataclass(frozen=True)
-class InitialAdminAccount:
-    name: str
-    email: str
-    password: str = field(repr=False)
+from app.src.infra.exceptions.errors import ConfigurationError
+from app.src.infra.setup.logging_config import configure_logging
+from app.src.infra.setup.settings import Settings
 
 
 class InitialAdminProvisioner:
-    minimum_password_length = 20
-
     def __init__(
         self,
         session_factory: sessionmaker[Session],
@@ -47,10 +28,11 @@ class InitialAdminProvisioner:
         self._session_factory = session_factory
         self._company_name = company_name.strip()
         self._admins = admins
-        self._allowlist = GlobalAdminAllowlist(allowed_admin_emails)
+        self._allowed_admin_emails = allowed_admin_emails
 
     @classmethod
     def run_from_environment(cls) -> None:
+        configure_logging()
         settings = Settings.from_environment()
         if not settings.database_url:
             raise ConfigurationError(
@@ -87,138 +69,20 @@ class InitialAdminProvisioner:
             engine.dispose()
 
     def execute(self, password_hash: PasswordHash) -> None:
-        self._validate_configuration()
-        with self._session_factory() as session, session.begin():
-            company = self._get_or_create_company(session)
-            grant_global_admin = GrantGlobalAdminUseCase(
-                SqlAlchemyUserAuthenticationRepository(session),
-                self._allowlist,
-            )
-            for admin in self._admins:
-                user = self._get_or_create_user(session, admin, password_hash)
-                self._ensure_admin_membership(session, company, user)
-                grant_global_admin.execute(user.email)
+        try:
+            with self._session_factory() as session:
+                provisioner = build_initial_admin_provisioning_use_case(
+                    session,
+                    password_hash,
+                    self._allowed_admin_emails,
+                )
+                provisioner.execute(self._company_name, self._admins)
+        except InitialAdminProvisioningError as exc:
+            raise ConfigurationError(str(exc)) from exc
 
         print(
             f"Initial company admins are ready for '{self._company_name}': "
             f"{self._admins[0].email}, {self._admins[1].email}"
-        )
-
-    def _validate_configuration(self) -> None:
-        if not self._company_name:
-            raise ConfigurationError("INITIAL_COMPANY_NAME must not be empty.")
-        if len(self._company_name) > 255:
-            raise ConfigurationError("INITIAL_COMPANY_NAME must be 255 characters or fewer.")
-
-        emails = [admin.email.casefold() for admin in self._admins]
-        if len(set(emails)) != len(emails):
-            raise ConfigurationError("Initial admin email addresses must be unique.")
-        if not self._allowlist.matches(admin.email for admin in self._admins):
-            raise ConfigurationError(
-                "Initial admin identities must exactly match GLOBAL_ADMIN_ALLOWED_EMAILS."
-            )
-
-        for index, admin in enumerate(self._admins, start=1):
-            if not admin.name or len(admin.name) > 255:
-                raise ConfigurationError(
-                    f"INITIAL_ADMIN_{index}_NAME must contain 1 to 255 characters."
-                )
-            if not admin.email or len(admin.email) > 320 or "@" not in admin.email:
-                raise ConfigurationError(
-                    f"INITIAL_ADMIN_{index}_EMAIL must be a valid email address."
-                )
-            if len(admin.password) < self.minimum_password_length:
-                raise ConfigurationError(
-                    f"INITIAL_ADMIN_{index}_PASSWORD must contain at least "
-                    f"{self.minimum_password_length} characters."
-                )
-        if self._admins[0].password == self._admins[1].password:
-            raise ConfigurationError("Initial admin passwords must be different.")
-
-    def _get_or_create_company(self, session: Session) -> Company:
-        companies = session.scalars(
-            select(Company).where(func.lower(Company.name) == self._company_name.casefold())
-        ).all()
-        if len(companies) > 1:
-            raise ConfigurationError(
-                f"Multiple companies match '{self._company_name}'. Resolve duplicates first."
-            )
-        if companies:
-            company = companies[0]
-            if CompanyStatus(company.status) is not CompanyStatus.ACTIVE:
-                raise ConfigurationError(
-                    f"Company '{self._company_name}' exists but is not ACTIVE."
-                )
-            return company
-
-        company = Company(
-            name=self._company_name,
-            status=CompanyStatus.ACTIVE.value,
-            activated_at=datetime.now(timezone.utc),
-        )
-        session.add(company)
-        session.flush()
-        return company
-
-    def _get_or_create_user(
-        self,
-        session: Session,
-        admin: InitialAdminAccount,
-        password_hash: PasswordHash,
-    ) -> UserRecord:
-        user = session.scalar(
-            select(UserRecord).where(func.lower(UserRecord.email) == admin.email.casefold())
-        )
-        if user is not None:
-            if UserStatus(user.status) is not UserStatus.ACTIVE:
-                raise ConfigurationError(
-                    f"Existing user '{admin.email}' is not ACTIVE."
-                )
-            if user.password_hash is None:
-                raise ConfigurationError(
-                    f"Existing user '{admin.email}' has no password hash. "
-                    "Set a password through the approved account-recovery flow."
-                )
-            return user
-
-        user = UserRecord(
-            name=admin.name,
-            email=admin.email,
-            password_hash=password_hash.hash(admin.password),
-            status=UserStatus.ACTIVE.value,
-        )
-        session.add(user)
-        session.flush()
-        return user
-
-    def _ensure_admin_membership(
-        self,
-        session: Session,
-        company: Company,
-        user: UserRecord,
-    ) -> None:
-        membership = session.scalar(
-            select(Membership).where(
-                Membership.company_id == company.id,
-                Membership.user_id == user.id,
-                Membership.status == MembershipStatus.ACTIVE.value,
-            )
-        )
-        if membership is not None:
-            if membership.role != CompanyRole.COMPANY_ADMIN.value:
-                raise ConfigurationError(
-                    f"User '{user.email}' already has a different active role "
-                    f"for '{company.name}'."
-                )
-            return
-
-        session.add(
-            Membership(
-                company_id=company.id,
-                user_id=user.id,
-                role=CompanyRole.COMPANY_ADMIN.value,
-                status=MembershipStatus.ACTIVE.value,
-            )
         )
 
 

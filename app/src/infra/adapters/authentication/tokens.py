@@ -5,10 +5,12 @@ import jwt
 from jwt import PyJWTError
 
 from app.src.domain.dtos.authentication import IssuedAccessToken
-from app.src.infra.setup.settings import ConfigurationError, Settings
+from app.src.domain.interfaces.adapters.authentication import AccessTokenProvider
+from app.src.infra.exceptions.errors import ConfigurationError
+from app.src.infra.setup.settings import Settings
 
 
-class JwtAccessTokenProvider:
+class JwtAccessTokenProvider(AccessTokenProvider):
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 

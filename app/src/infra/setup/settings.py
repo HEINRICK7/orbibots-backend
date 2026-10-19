@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from app.src.domain.entities.authentication.errors import GlobalAdminGrantError
 from app.src.domain.entities.authentication.policies import GlobalAdminAllowlist
+from app.src.infra.exceptions.errors import ConfigurationError
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
@@ -13,10 +14,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 def load_environment() -> None:
     load_dotenv(PROJECT_ROOT / ".env")
-
-
-class ConfigurationError(RuntimeError):
-    pass
 
 
 @dataclass(frozen=True)

@@ -10,6 +10,12 @@ class UserCredentials:
 
 
 @dataclass(frozen=True)
+class GlobalAdminGrantCandidate:
+    is_active: bool
+    has_password: bool
+
+
+@dataclass(frozen=True)
 class IssuedAccessToken:
     encoded: str
     expires_in: int

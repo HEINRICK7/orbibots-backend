@@ -1,0 +1,165 @@
+{
+  "root_name": "app",
+  "package_name": "src",
+  "layers": [
+    "domain",
+    "application",
+    "infra"
+  ],
+  "dependency_rules": {
+    "domain": [],
+    "application": [
+      "domain"
+    ],
+    "infra": [
+      "domain",
+      "application"
+    ]
+  },
+  "forbidden_in_domain": [
+    "fastapi",
+    "flask",
+    "django",
+    "starlette",
+    "sqlalchemy",
+    "requests",
+    "httpx",
+    "aiohttp",
+    "boto3",
+    "botocore",
+    "pymongo",
+    "psycopg2",
+    "redis",
+    "kafka",
+    "pika",
+    "uvicorn",
+    "gunicorn",
+    "pydantic_settings"
+  ],
+  "forbidden_in_application": [
+    "fastapi",
+    "flask",
+    "django",
+    "starlette",
+    "sqlalchemy",
+    "requests",
+    "httpx",
+    "aiohttp",
+    "boto3",
+    "botocore",
+    "pymongo",
+    "psycopg2",
+    "redis",
+    "kafka",
+    "pika",
+    "uvicorn",
+    "gunicorn"
+  ],
+  "required_dirs": [
+    "{package_name}",
+    "{package_name}/application",
+    "{package_name}/application/configuration",
+    "{package_name}/application/gateways",
+    "{package_name}/application/usecases",
+    "{package_name}/domain",
+    "{package_name}/domain/config",
+    "{package_name}/domain/dtos",
+    "{package_name}/domain/entities",
+    "{package_name}/domain/interfaces",
+    "{package_name}/domain/interfaces/adapters",
+    "{package_name}/domain/interfaces/gateways",
+    "{package_name}/domain/interfaces/usecases",
+    "{package_name}/infra",
+    "{package_name}/infra/adapters",
+    "{package_name}/infra/controllers",
+    "{package_name}/infra/di",
+    "{package_name}/infra/entrypoints",
+    "{package_name}/infra/exceptions",
+    "{package_name}/infra/setup",
+    "tests",
+    "tests/integration",
+    "tests/integration/health_check",
+    "tests/unitary",
+    "tests/unitary/application",
+    "tests/unitary/domain",
+    "tests/unitary/infra"
+  ],
+  "required_files": [
+    "requirements.txt",
+    "requirements_tests.txt",
+    "pytest.ini",
+    "logging.conf",
+    "Dockerfile",
+    "run.py"
+  ],
+  "allowed_children": {
+    "{package_name}": [
+      "application",
+      "domain",
+      "infra"
+    ],
+    "{package_name}/application": [
+      "configuration",
+      "gateways",
+      "usecases"
+    ],
+    "{package_name}/domain": [
+      "config",
+      "dtos",
+      "entities",
+      "interfaces"
+    ],
+    "{package_name}/domain/interfaces": [
+      "adapters",
+      "gateways",
+      "usecases"
+    ],
+    "{package_name}/infra": [
+      "adapters",
+      "controllers",
+      "di",
+      "entrypoints",
+      "exceptions",
+      "setup"
+    ],
+    "tests": [
+      "integration",
+      "unitary"
+    ],
+    "tests/unitary": [
+      "application",
+      "domain",
+      "infra"
+    ]
+  },
+  "ignore_names": [
+    "__pycache__",
+    ".pytest_cache",
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".idea",
+    ".vscode"
+  ],
+  "project_conventions": {
+    "source_root": "app/src",
+    "http_controllers": "src/infra/controllers",
+    "composition_root": "src/infra/di",
+    "domain_contracts": "src/domain/interfaces",
+    "application_ports": "src/application/gateways",
+    "persistence_and_external_adapters": "src/infra/adapters",
+    "required_directories_preserved": [
+      "src/application/configuration",
+      "src/application/gateways",
+      "src/domain/config"
+    ],
+    "currently_empty_required_directories": [
+      "src/application/configuration",
+      "src/domain/config"
+    ],
+    "notes": "Project-specific decisions are documented in ARCHITECTURE_DECISIONS.md. This metadata is ignored by the upstream checker."
+  }
+}
