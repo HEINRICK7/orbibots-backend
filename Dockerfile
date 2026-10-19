@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1
 RUN adduser --disabled-password --gecos "" --uid 10001 app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY alembic.ini .
+COPY alembic.ini logging.conf run.py ./
 COPY migrations migrations
 COPY app app
 COPY deploy/entrypoint.sh /entrypoint.sh

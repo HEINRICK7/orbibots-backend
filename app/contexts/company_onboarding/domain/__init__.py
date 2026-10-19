@@ -1,1 +1,0 @@
-"""Company onboarding domain types."""
