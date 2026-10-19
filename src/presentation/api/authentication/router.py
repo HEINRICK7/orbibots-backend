@@ -13,6 +13,7 @@ from src.presentation.api.authentication.dependencies import (
     AuthenticateUserUseCaseProvider,
     CurrentUserDependency,
     DatabaseSession,
+    RequireCompanyAdminDependency,
     RequireGlobalAdminDependency,
     database_session_dependency,
 )
@@ -39,6 +40,9 @@ class AuthenticationRouter:
             authenticate_user_use_case_provider
         )
         self.require_global_admin = RequireGlobalAdminDependency(
+            CurrentUserDependency(authenticate_user_use_case_provider)
+        )
+        self.require_company_admin = RequireCompanyAdminDependency(
             CurrentUserDependency(authenticate_user_use_case_provider)
         )
         self.router = APIRouter()
@@ -97,4 +101,4 @@ class AuthenticationRouter:
                 detail="Invalid authentication credentials.",
                 headers={"WWW-Authenticate": "Bearer"},
             ) from exc
-        return UserResponse(id=user.id, name=user.name, email=user.email)
+        return UserResponse.model_validate(user)

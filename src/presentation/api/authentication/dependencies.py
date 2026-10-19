@@ -1,15 +1,20 @@
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from typing import Any
+from uuid import UUID
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Path, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from src.application.access.authorize_access import (
+    RequireCompanyAdminUseCase,
+    RequireGlobalAdminUseCase,
+)
 from src.application.authentication.use_cases.authenticate_user import (
     AuthenticateUserUseCase,
 )
+from src.domain.access.errors import AccessDeniedError
 from src.domain.authentication.errors import AuthenticationError
-from src.domain.authentication.global_role import GlobalRole
 from src.domain.authentication.user import AuthenticatedUser
 
 
@@ -84,6 +89,7 @@ class CurrentUserDependency:
 class RequireGlobalAdminDependency:
     def __init__(self, current_user_dependency: CurrentUserDependency) -> None:
         self._current_user_dependency = current_user_dependency
+        self._authorize = RequireGlobalAdminUseCase()
 
     def __call__(
         self,
@@ -94,10 +100,37 @@ class RequireGlobalAdminDependency:
         session: DatabaseSession = Depends(database_session_dependency),
     ) -> AuthenticatedUser:
         user = self._current_user_dependency.resolve(request, credentials, session)
-        if not user.is_active or user.global_role is not GlobalRole.ADMIN:
+        try:
+            self._authorize.execute(user)
+        except AccessDeniedError as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Global ADMIN role required.",
-            )
+                detail=str(exc),
+            ) from exc
+        return user
+
+
+class RequireCompanyAdminDependency:
+    def __init__(self, current_user_dependency: CurrentUserDependency) -> None:
+        self._current_user_dependency = current_user_dependency
+        self._authorize = RequireCompanyAdminUseCase()
+
+    def __call__(
+        self,
+        request: Request,
+        company_id: UUID = Path(...),
+        credentials: HTTPAuthorizationCredentials | None = Depends(
+            CurrentUserDependency._bearer_scheme
+        ),
+        session: DatabaseSession = Depends(database_session_dependency),
+    ) -> AuthenticatedUser:
+        user = self._current_user_dependency.resolve(request, credentials, session)
+        try:
+            self._authorize.execute(user, company_id)
+        except AccessDeniedError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=str(exc),
+            ) from exc
         return user
 

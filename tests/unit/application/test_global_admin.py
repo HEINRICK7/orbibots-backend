@@ -11,7 +11,7 @@ from src.application.authentication.use_cases.grant_global_admin import (
 from src.domain.authentication.errors import GlobalAdminGrantError
 from src.domain.authentication.global_role import GlobalRole
 from src.domain.authentication.user import AuthenticatedUser
-from src.infrastructure.config.settings import Settings
+from src.infrastructure.config.settings import ConfigurationError, Settings
 
 
 class GlobalAdminTests(unittest.TestCase):
@@ -44,9 +44,13 @@ class GlobalAdminTests(unittest.TestCase):
 
         self.repository.grant_global_admin.assert_not_called()
 
-    def test_allowlist_requires_exactly_two_distinct_valid_emails(self) -> None:
+    def test_allowlist_accepts_one_or_two_distinct_valid_emails(self) -> None:
+        GlobalAdminAllowlist(("solo@example.test",))
+        GlobalAdminAllowlist(("first@example.test", "second@example.test"))
+
+    def test_allowlist_rejects_empty_duplicate_invalid_or_more_than_two_emails(self) -> None:
         invalid_allowlists = (
-            ("first@example.test",),
+            (),
             ("first@example.test", "FIRST@example.test"),
             ("first@example.test", "invalid-email"),
             ("first@example.test", "second@example.test", "third@example.test"),
@@ -57,12 +61,41 @@ class GlobalAdminTests(unittest.TestCase):
                 with self.assertRaises(GlobalAdminGrantError):
                     GlobalAdminAllowlist(emails)
 
+    def test_bootstrap_identity_must_be_explicitly_allowlisted(self) -> None:
+        with self.assertRaises(ConfigurationError):
+            Settings(
+                app_env="development",
+                bootstrap_admin_email="admin@example.test",
+                bootstrap_admin_password="long-enough-development-password",
+            )
+
+    def test_bootstrap_password_requires_twenty_characters(self) -> None:
+        with self.assertRaises(ConfigurationError):
+            Settings(
+                app_env="development",
+                bootstrap_admin_email="admin@example.test",
+                bootstrap_admin_password="too-short",
+                global_admin_allowed_emails=("admin@example.test",),
+            )
+
+    def test_bootstrap_identity_can_be_the_only_allowlisted_global_admin(self) -> None:
+        settings = Settings(
+            app_env="development",
+            bootstrap_admin_email="Admin@example.test",
+            bootstrap_admin_password="long-enough-development-password",
+            global_admin_allowed_emails=("admin@example.test",),
+        )
+
+        self.assertEqual(settings.global_admin_allowed_emails, ("admin@example.test",))
+
     def test_settings_do_not_silently_ignore_empty_allowlist_entries(self) -> None:
         with patch.dict(
             os.environ,
             {
                 "GLOBAL_ADMIN_ALLOWED_EMAILS":
-                    "first@example.test,second@example.test,"
+                    "first@example.test,second@example.test,",
+                "BOOTSTRAP_ADMIN_EMAIL": "",
+                "BOOTSTRAP_ADMIN_PASSWORD": "",
             },
         ):
             settings = Settings.from_environment()
