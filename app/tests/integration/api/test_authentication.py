@@ -15,7 +15,7 @@ from app.src.infra.setup.model_registry import Base
 from app.src.infra.entrypoints.app import create_app
 from app.src.domain.entities.company_onboarding.membership_scope import MembershipScope
 from app.src.domain.entities.authentication.errors import AuthenticationError, GlobalAdminGrantError
-from app.src.infra.setup.bootstrap_admin import BootstrapAdmin
+from app.src.infra.di.bootstrap_admin import build_bootstrap_admin
 from app.src.infra.adapters.persistence.authentication_models import UserRecord
 from app.src.infra.adapters.authentication.password_hashing import (
     PwdlibPasswordVerifier,
@@ -25,7 +25,8 @@ from app.src.infra.adapters.authentication.repository import (
 )
 from app.src.infra.adapters.authentication.tokens import JwtAccessTokenProvider
 from app.src.infra.adapters.persistence.company_onboarding_models import Company, Membership
-from app.src.infra.setup.settings import ConfigurationError, Settings
+from app.src.infra.exceptions.errors import ConfigurationError
+from app.src.infra.setup.settings import Settings
 
 
 class AuthenticationTests(unittest.TestCase):
@@ -296,20 +297,16 @@ class AuthenticationTests(unittest.TestCase):
 
     def test_bootstrap_admin_is_created_once(self) -> None:
         with self.session_factory() as session:
-            admin = BootstrapAdmin()
+            admin = build_bootstrap_admin(session, ("admin@example.test",))
             admin.ensure(
-                session,
                 email="Admin@Example.test",
                 password="correct horse battery staple",
                 name="Administrador",
-                allowed_admin_emails=("admin@example.test",),
             )
-            admin.ensure(
-                session,
+            build_bootstrap_admin(session, ("admin@example.test",)).ensure(
                 email="admin@example.test",
                 password="another-password",
                 name="Outro",
-                allowed_admin_emails=("admin@example.test",),
             )
             stored = session.scalar(
                 select(UserRecord).where(UserRecord.email == "admin@example.test")
@@ -328,12 +325,13 @@ class AuthenticationTests(unittest.TestCase):
     def test_bootstrap_admin_must_be_allowlisted_before_a_user_is_created(self) -> None:
         with self.session_factory() as session:
             with self.assertRaises(GlobalAdminGrantError):
-                BootstrapAdmin().ensure(
+                build_bootstrap_admin(
                     session,
+                    ("approved@example.test",),
+                ).ensure(
                     email="unapproved@example.test",
                     password="correct horse battery staple",
                     name="Unapproved",
-                    allowed_admin_emails=("approved@example.test",),
                 )
             stored = session.scalar(
                 select(UserRecord).where(UserRecord.email == "unapproved@example.test")
@@ -354,12 +352,10 @@ class AuthenticationTests(unittest.TestCase):
                 )
             )
             session.commit()
-            BootstrapAdmin().ensure(
-                session,
+            build_bootstrap_admin(session, (email,)).ensure(
                 email=email,
                 password="must-not-replace-the-existing-password",
                 name="New Name Must Not Replace Existing Name",
-                allowed_admin_emails=(email,),
             )
             stored = session.scalar(
                 select(UserRecord).where(UserRecord.email == email)

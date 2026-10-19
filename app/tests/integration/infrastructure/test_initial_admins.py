@@ -6,10 +6,8 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.src.infra.setup.initial_admins import (
-    InitialAdminAccount,
-    InitialAdminProvisioner,
-)
+from app.src.domain.dtos.initial_admins import InitialAdminAccount
+from app.src.infra.setup.initial_admins import InitialAdminProvisioner
 from app.src.infra.setup.model_registry import Base
 from app.src.domain.entities.authentication.global_role import GlobalRole
 from app.src.infra.adapters.persistence.authentication_models import UserRecord
@@ -17,7 +15,7 @@ from app.src.infra.adapters.persistence.company_onboarding_models import (
     Company,
     Membership,
 )
-from app.src.infra.setup.settings import ConfigurationError
+from app.src.infra.exceptions.errors import ConfigurationError
 
 
 class InitialAdminProvisionerTests(unittest.TestCase):
@@ -104,6 +102,32 @@ class InitialAdminProvisionerTests(unittest.TestCase):
             self.assertEqual(session.scalar(select(func.count()).select_from(UserRecord)), 2)
             self.assertEqual(session.scalar(select(func.count()).select_from(Membership)), 2)
         self.assertEqual(self.password_hash.hash.call_count, initial_hash_calls)
+
+    def test_provisioning_failure_rolls_back_all_changes_in_the_transaction(self) -> None:
+        with self.session_factory() as session:
+            session.add(
+                UserRecord(
+                    name="Suspended Admin",
+                    email=self.admins[1].email,
+                    password_hash="existing-password-hash",
+                    status="SUSPENDED",
+                )
+            )
+            session.commit()
+
+        with self.assertRaises(ConfigurationError):
+            self.provisioner.execute(self.password_hash)
+
+        with self.session_factory() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(Company)), 0)
+            self.assertEqual(session.scalar(select(func.count()).select_from(Membership)), 0)
+            self.assertIsNone(
+                session.scalar(
+                    select(UserRecord).where(
+                        UserRecord.email == self.admins[0].email
+                    )
+                )
+            )
 
     def test_rejects_weak_passwords_before_writing_any_records(self) -> None:
         weak_admins = (

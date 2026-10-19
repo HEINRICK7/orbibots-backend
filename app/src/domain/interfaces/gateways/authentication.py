@@ -1,7 +1,10 @@
 from typing import Protocol
 from uuid import UUID
 
-from app.src.domain.dtos.authentication import UserCredentials
+from app.src.domain.dtos.authentication import (
+    GlobalAdminGrantCandidate,
+    UserCredentials,
+)
 from app.src.domain.entities.authentication.user import AuthenticatedUser
 
 
@@ -12,4 +15,8 @@ class UserAuthenticationRepository(Protocol):
 
 
 class GlobalAdminGrantRepository(Protocol):
-    def grant_global_admin(self, email: str) -> AuthenticatedUser: ...
+    def get_global_admin_grant_candidate(
+        self, email: str
+    ) -> GlobalAdminGrantCandidate | None: ...
+
+    def grant_global_admin(self, email: str) -> AuthenticatedUser | None: ...

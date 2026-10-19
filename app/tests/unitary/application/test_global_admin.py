@@ -3,15 +3,15 @@ import unittest
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
-from app.src.domain.interfaces.gateways.authentication import GlobalAdminGrantRepository
-from app.src.application.usecases.grant_global_admin import (
-    GlobalAdminAllowlist,
-    GrantGlobalAdminUseCase,
-)
+from app.src.application.usecases.grant_global_admin import GrantGlobalAdminUseCase
+from app.src.domain.dtos.authentication import GlobalAdminGrantCandidate
 from app.src.domain.entities.authentication.errors import GlobalAdminGrantError
 from app.src.domain.entities.authentication.global_role import GlobalRole
+from app.src.domain.entities.authentication.policies import GlobalAdminAllowlist
 from app.src.domain.entities.authentication.user import AuthenticatedUser
-from app.src.infra.setup.settings import ConfigurationError, Settings
+from app.src.domain.interfaces.gateways.authentication import GlobalAdminGrantRepository
+from app.src.infra.exceptions.errors import ConfigurationError
+from app.src.infra.setup.settings import Settings
 
 
 class GlobalAdminTests(unittest.TestCase):
@@ -29,6 +29,9 @@ class GlobalAdminTests(unittest.TestCase):
             is_active=True,
             global_role=GlobalRole.ADMIN,
         )
+        self.repository.get_global_admin_grant_candidate.return_value = (
+            GlobalAdminGrantCandidate(is_active=True, has_password=True)
+        )
         self.repository.grant_global_admin.return_value = admin
 
         result = self.use_case.execute(" FIRST@EXAMPLE.TEST ")
@@ -41,6 +44,16 @@ class GlobalAdminTests(unittest.TestCase):
     def test_rejects_an_identity_outside_the_allowlist(self) -> None:
         with self.assertRaises(GlobalAdminGrantError):
             self.use_case.execute("third@example.test")
+
+        self.repository.grant_global_admin.assert_not_called()
+
+    def test_rejects_an_ineligible_user_before_persisting_the_role(self) -> None:
+        self.repository.get_global_admin_grant_candidate.return_value = (
+            GlobalAdminGrantCandidate(is_active=False, has_password=True)
+        )
+
+        with self.assertRaises(GlobalAdminGrantError):
+            self.use_case.execute("first@example.test")
 
         self.repository.grant_global_admin.assert_not_called()
 

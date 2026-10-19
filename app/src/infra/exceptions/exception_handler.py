@@ -1,4 +1,3 @@
-import logging
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -15,8 +14,9 @@ from app.src.infra.exceptions.errors import (
     AuthenticationRequiredError,
     DatabaseUnavailableError,
 )
+from app.src.infra.setup.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,6 @@ class ExceptionMapping:
     status_code: int
     safe_detail: str
     headers: Mapping[str, str] | None = None
-    use_exception_detail: bool = False
 
 
 class ExceptionHandler:
@@ -52,7 +51,6 @@ class ExceptionHandler:
             ErrorCode.ACCESS_DENIED,
             403,
             "Insufficient permissions.",
-            use_exception_detail=True,
         ),
         DatabaseUnavailableError: ExceptionMapping(
             ErrorCode.DATABASE_UNAVAILABLE,
@@ -86,10 +84,9 @@ class ExceptionHandler:
                 request.url.path,
             )
 
-        detail = str(exc) if mapping.use_exception_detail else mapping.safe_detail
         return JSONResponse(
             status_code=mapping.status_code,
-            content={"detail": detail},
+            content={"detail": mapping.safe_detail},
             headers=dict(mapping.headers or {}),
         )
 

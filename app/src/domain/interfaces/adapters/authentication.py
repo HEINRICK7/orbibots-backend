@@ -8,6 +8,10 @@ class PasswordVerifier(Protocol):
     def verify(self, password: str, encoded_hash: str) -> bool: ...
 
 
+class PasswordHasher(Protocol):
+    def hash(self, password: str) -> str: ...
+
+
 class AccessTokenProvider(Protocol):
     def issue(self, user_id: UUID) -> IssuedAccessToken: ...
 
