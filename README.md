@@ -9,7 +9,7 @@ enum with the V1 values `COMPANY` and `ASSIGNED_AGENTS`.
 Install the Python dependencies:
 
 ```powershell
-.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip install -r app/requirements.txt
 ```
 
 Create your local environment file:
@@ -32,7 +32,7 @@ In PowerShell, from the project root, install dependencies and create the local
 environment file if it does not exist:
 
 ```powershell
-.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip install -r app/requirements.txt
 Copy-Item .env.example .env
 ```
 
@@ -46,7 +46,7 @@ docker compose up -d --wait postgres
 Start the development server:
 
 ```powershell
-.\venv\Scripts\python.exe -m uvicorn src.main:app --reload
+.\venv\Scripts\python.exe -m uvicorn app.run:app --reload
 ```
 
 The server is available at `http://127.0.0.1:8000`; interactive API
@@ -98,7 +98,7 @@ Run the explicit provisioning command after PostgreSQL is running and the
 Alembic migrations have been applied:
 
 ```powershell
-.\venv\Scripts\python.exe -m src.bootstrap.initial_admins
+.\venv\Scripts\python.exe -m app.src.infra.setup.initial_admins
 ```
 
 The command creates the company as `ACTIVE`, creates missing users with
@@ -112,42 +112,35 @@ and conflicting inactive accounts or memberships cause an explicit error.
 ## Project layout
 
 ```text
-src/
-├── domain/
-│   ├── access/
-│   ├── authentication/
-│   └── company_onboarding/
-├── application/
-│   ├── access/
-│   └── authentication/
-│       ├── use_cases/
-│       └── ports/
-├── infrastructure/
-│   ├── authentication/
-│   ├── company_onboarding/
-│   ├── config/
-│   └── persistence/
-├── presentation/
-│   └── api/
-│       ├── authentication/
-│       └── health_check/
-├── bootstrap/
-└── main.py
+app/
+├── src/
+│   ├── application/{configuration,gateways,usecases}/
+│   ├── domain/{config,dtos,entities,interfaces}/
+│   └── infra/{adapters,controllers,di,entrypoints,exceptions,setup}/
+├── tests/
+│   ├── integration/{api,infrastructure,health_check}/
+│   └── unitary/{application,domain,infra}/
+├── requirements.txt
+├── requirements_tests.txt
+├── pytest.ini
+├── logging.conf
+├── Dockerfile
+└── run.py
 
-tests/
-├── unit/
-│   ├── domain/
-│   └── application/
-└── integration/
-    ├── infrastructure/
-    └── api/
+migrations/
+deploy/
+alembic.ini
 ```
 
-Dependencies point inward: domain and application code do not import FastAPI,
-SQLAlchemy, Punq, or cryptographic libraries. Infrastructure implements
-application ports declared as `Protocol`s. Presentation translates HTTP and
-depends on use cases; `src/bootstrap/` wires those use cases to concrete
-adapters, and `src/main.py` exposes `app = create_app()`.
+Dependencies point inward: `domain/` defines entities, DTOs, and interfaces;
+`application/usecases/` implements those contracts and receives dependencies
+through constructors. `infra/adapters/` contains SQLAlchemy, password hashing,
+and token implementations. FastAPI controllers translate HTTP and call use
+cases. `infra/di/` is the composition root and uses Punq to assemble
+request-scoped dependencies, which can be replaced with mocks in tests.
+`infra/exceptions/` maps known failures to HTTP statuses while keeping the
+existing `{"detail": ...}` response shape. `infra/entrypoints/` creates the
+ASGI app, exposed locally as `app.run:app`.
 
 ## Access roles
 
@@ -162,9 +155,9 @@ Global and company access are separate grants:
   active memberships.
 
 `GET /auth/me` returns `global_role` and the active `company_accesses`. FastAPI
-dependencies at the presentation boundary call use cases in
-`src/application/access/`; those use cases apply the rules in
-`src/domain/access/policy.py`. Attach `require_global_admin` to platform
+dependencies at the controller boundary call use cases in
+`app/src/application/usecases/`; those use cases apply the rules in
+`app/src/domain/entities/access/policy.py`. Attach `require_global_admin` to platform
 operations and `require_company_admin` to company operations whose route
 includes a `company_id`. The current backend has no administrative
 business-operation routes yet; those routes must apply the appropriate
@@ -182,5 +175,5 @@ Compose, Alembic, and the integration tests load connection settings from
 
 ```powershell
 .\venv\Scripts\alembic.exe upgrade head
-.\venv\Scripts\python.exe -m unittest discover -s tests -v
+.\venv\Scripts\python.exe -m unittest discover -s app/tests -v
 ```
