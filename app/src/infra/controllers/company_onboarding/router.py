@@ -236,11 +236,13 @@ class CompanyOnboardingRouter:
     ) -> InvitationValidationResponse:
         result = self._invitation_acceptance_context(session).execute(payload.token)
         return InvitationValidationResponse(
+            company_id=result.company_id,
             company_name=result.company_name,
             invited_name=result.invited_name,
             email_masked=_mask_email(result.email),
             role=result.intended_role,
             expires_at=result.expires_at,
+            status=result.status,
         )
 
     def _accept(

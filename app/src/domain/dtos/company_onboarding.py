@@ -62,6 +62,7 @@ class InvitationSummary:
     status: InvitationStatus
     expires_at: datetime
     created_at: datetime
+    email_delivery_status: OutboxStatus | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,7 @@ class InvitationAcceptanceContext:
     email: str
     intended_role: CompanyRole
     expires_at: datetime
+    status: InvitationStatus
 
 
 @dataclass(frozen=True)

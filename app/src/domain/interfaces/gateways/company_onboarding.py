@@ -21,6 +21,8 @@ from app.src.domain.entities.company_onboarding.status import (
 
 
 class CompanyOnboardingRepository(Protocol):
+    def has_pending_invitation_for_email(self, email: str) -> bool: ...
+
     def create_company(
         self, name: str, status: CompanyStatus, created_at: datetime
     ) -> UUID: ...

@@ -123,6 +123,7 @@ class CompanyOnboardingApiTests(unittest.TestCase):
         self.assertEqual("Acme", company_summary["name"])
         self.assertEqual(CompanyStatus.PENDING_ACTIVATION.value, company_summary["status"])
         self.assertEqual(InvitationStatus.PENDING.value, company_summary["invitations"][0]["status"])
+        self.assertEqual(OutboxStatus.PENDING.value, company_summary["invitations"][0]["email_delivery_status"])
         self.assertNotIn("token_hash", company_summary["invitations"][0])
         self.assertNotIn("raw_token", str(company_summary))
 
@@ -144,6 +145,42 @@ class CompanyOnboardingApiTests(unittest.TestCase):
             self.assertNotIn("one-time-token", invitation.token_hash)
             self.assertEqual(OutboxStatus.PENDING.value, outbox.status)
             self.assertEqual(AuditOutcome.SUCCESS.value, audit.outcome)
+
+    def test_super_admin_cannot_create_a_second_pending_invitation_for_the_same_email(self) -> None:
+        request = {
+            "company_name": "First Invite Company",
+            "admin_name": "Ana Silva",
+            "email": "duplicate-admin@example.com",
+        }
+        first = self.client.post(
+            "/company-onboarding/companies",
+            headers=self.root_headers,
+            json=request,
+        )
+        duplicate = self.client.post(
+            "/company-onboarding/companies",
+            headers=self.root_headers,
+            json={
+                **request,
+                "company_name": "Second Invite Company",
+                "email": " DUPLICATE-ADMIN@EXAMPLE.COM ",
+            },
+        )
+
+        self.assertEqual(201, first.status_code)
+        self.assertEqual(409, duplicate.status_code)
+        self.assertEqual("CONFLICT", duplicate.json()["code"])
+        listing = self.client.get(
+            "/company-onboarding/companies",
+            headers=self.root_headers,
+        )
+        duplicate_email_invitations = [
+            invitation
+            for company in listing.json()
+            for invitation in company["invitations"]
+            if invitation["email"] == "duplicate-admin@example.com"
+        ]
+        self.assertEqual(1, len(duplicate_email_invitations))
 
     def test_non_admin_cannot_provision_or_list_company_invitations(self) -> None:
         create_response = self.client.post(
@@ -229,6 +266,13 @@ class CompanyOnboardingApiTests(unittest.TestCase):
         self.assertEqual(200, acceptance.status_code)
         self.assertNotEqual(raw_token, acceptance.json()["access_token"])
         self.assertEqual("bearer", acceptance.json()["token_type"])
+        accepted_context = self.client.post(
+            "/company-onboarding/public/invitations/validate",
+            json={"token": raw_token},
+        )
+        self.assertEqual(200, accepted_context.status_code)
+        self.assertEqual("ACCEPTED", accepted_context.json()["status"])
+        self.assertEqual(str(company_id), accepted_context.json()["company_id"])
         self.assertEqual(200, authenticated.status_code)
         self.assertEqual(
             [str(company_id)],

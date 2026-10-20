@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.src.domain.entities.access.company_role import CompanyRole
@@ -53,6 +54,17 @@ class SqlAlchemyCompanyOnboardingRepository(
     def __init__(self, session: Session) -> None:
         self._session = session
 
+    def has_pending_invitation_for_email(self, email: str) -> bool:
+        invitation_id = self._session.scalar(
+            select(Invitation.id)
+            .where(
+                func.lower(Invitation.email) == email.casefold(),
+                Invitation.status == InvitationStatus.PENDING.value,
+            )
+            .limit(1)
+        )
+        return invitation_id is not None
+
     def create_company(
         self, name: str, status: CompanyStatus, created_at: datetime
     ) -> UUID:
@@ -85,7 +97,14 @@ class SqlAlchemyCompanyOnboardingRepository(
             created_at=created_at,
         )
         self._session.add(invitation)
-        self._session.flush()
+        try:
+            self._session.flush()
+        except IntegrityError as exc:
+            if _is_pending_invitation_email_conflict(exc):
+                raise CompanyOnboardingConflictError(
+                    "An active invitation already exists for this email address."
+                ) from exc
+            raise
         return invitation.id
 
     def create_audit_event(
@@ -222,6 +241,7 @@ class SqlAlchemyCompanyOnboardingRepository(
             return ()
         invitations = self._session.scalars(
             select(Invitation)
+            .options(selectinload(Invitation.email_outbox_events))
             .where(Invitation.company_id == company_id)
             .order_by(Invitation.created_at.desc())
         ).all()
@@ -241,6 +261,7 @@ class SqlAlchemyCompanyOnboardingRepository(
                 ),
                 expires_at=invitation.expires_at,
                 created_at=invitation.created_at,
+                email_delivery_status=_latest_email_delivery_status(invitation),
             )
             for invitation in invitations
         )
@@ -248,7 +269,11 @@ class SqlAlchemyCompanyOnboardingRepository(
     def list_company_onboarding(self) -> tuple[CompanyOnboardingSummary, ...]:
         companies = self._session.scalars(
             select(Company)
-            .options(selectinload(Company.invitations))
+            .options(
+                selectinload(Company.invitations).selectinload(
+                    Invitation.email_outbox_events
+                )
+            )
             .order_by(Company.created_at.desc(), Company.id.asc())
         ).all()
         now = datetime.now(timezone.utc)
@@ -276,6 +301,7 @@ class SqlAlchemyCompanyOnboardingRepository(
                         ),
                         expires_at=invitation.expires_at,
                         created_at=invitation.created_at,
+                        email_delivery_status=_latest_email_delivery_status(invitation),
                     )
                     for invitation in sorted(
                         company.invitations,
@@ -292,7 +318,11 @@ class SqlAlchemyCompanyOnboardingRepository(
         token_hash: str,
         now: datetime,
     ) -> InvitationAcceptanceContext:
-        invitation, company, _ = self._load_invitation_acceptance(token_hash, now)
+        invitation, company, _ = self._load_invitation_acceptance(
+            token_hash,
+            now,
+            allow_accepted=True,
+        )
         return InvitationAcceptanceContext(
             invitation_id=invitation.id,
             company_id=company.id,
@@ -301,6 +331,7 @@ class SqlAlchemyCompanyOnboardingRepository(
             email=invitation.email,
             intended_role=CompanyRole(invitation.intended_role),
             expires_at=invitation.expires_at,
+            status=InvitationStatus(invitation.status),
         )
 
     def accept_invitation(
@@ -366,6 +397,8 @@ class SqlAlchemyCompanyOnboardingRepository(
         self,
         token_hash: str,
         now: datetime,
+        *,
+        allow_accepted: bool = False,
     ) -> tuple[Invitation, Company, UserRecord | None]:
         invitation = self._session.scalar(
             select(Invitation)
@@ -377,18 +410,21 @@ class SqlAlchemyCompanyOnboardingRepository(
         status = InvitationStatus(invitation.status)
         if status is InvitationStatus.REVOKED:
             raise InvitationRevokedError()
-        if status is InvitationStatus.ACCEPTED:
+        if status is InvitationStatus.ACCEPTED and not allow_accepted:
             raise InvitationAlreadyAcceptedError()
         if status is InvitationStatus.EXPIRED:
             raise InvitationExpiredError()
-        if status is not InvitationStatus.PENDING:
+        if status not in {InvitationStatus.PENDING, InvitationStatus.ACCEPTED}:
             raise InvitationNotFoundError()
-        if _as_utc(invitation.expires_at) <= _as_utc(now):
+        if status is InvitationStatus.PENDING and _as_utc(invitation.expires_at) <= _as_utc(now):
             raise InvitationExpiredError()
         company = self._session.scalar(
             select(Company).where(Company.id == invitation.company_id).with_for_update()
         )
-        if company is None or CompanyStatus(company.status) is CompanyStatus.SUSPENDED:
+        if company is None or (
+            status is InvitationStatus.PENDING
+            and CompanyStatus(company.status) is CompanyStatus.SUSPENDED
+        ):
             raise InvitationStateError()
         user = self._session.scalar(
             select(UserRecord)
@@ -522,3 +558,20 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _latest_email_delivery_status(invitation: Invitation) -> OutboxStatus | None:
+    latest = max(
+        invitation.email_outbox_events,
+        key=lambda event: (event.created_at, str(event.id)),
+        default=None,
+    )
+    return OutboxStatus(latest.status) if latest is not None else None
+
+
+def _is_pending_invitation_email_conflict(error: IntegrityError) -> bool:
+    original = error.orig
+    diagnostic = getattr(original, "diag", None)
+    if getattr(diagnostic, "constraint_name", None) == "uq_invitations_pending_email_lower":
+        return True
+    return "uq_invitations_pending_email_lower" in str(original)

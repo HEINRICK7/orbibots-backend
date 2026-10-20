@@ -16,6 +16,7 @@ from app.src.domain.entities.access.company_role import CompanyRole
 from app.src.domain.entities.company_onboarding.errors import (
     InvitationNotFoundError,
 )
+from app.src.domain.entities.company_onboarding.status import InvitationStatus
 
 
 class FakeUnitOfWork:
@@ -34,6 +35,7 @@ class FakeRepository:
             email="ana@example.com",
             intended_role=CompanyRole.COMPANY_ADMIN,
             expires_at=datetime(2026, 10, 20, tzinfo=timezone.utc),
+            status=InvitationStatus.PENDING,
         )
         self.accepted = None
         self.missing = False

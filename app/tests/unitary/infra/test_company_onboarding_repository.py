@@ -12,7 +12,11 @@ from app.src.domain.entities.company_onboarding.status import (
     InvitationStatus,
     OutboxStatus,
 )
-from app.src.domain.entities.company_onboarding.errors import InvitationNotFoundError
+from app.src.domain.entities.company_onboarding.errors import (
+    InvitationAlreadyAcceptedError,
+    CompanyOnboardingConflictError,
+    InvitationNotFoundError,
+)
 from app.src.domain.entities.company_onboarding.errors import (
     InvitationRateLimitError,
     InvitationStateError,
@@ -87,6 +91,41 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
         self.assertEqual(AuditOutcome.SUCCESS.value, audit.outcome)
         self.assertEqual(OutboxStatus.PENDING.value, outbox.status)
 
+    def test_pending_invitation_email_is_unique_across_companies_case_insensitively(self) -> None:
+        now = datetime.now(timezone.utc)
+        with self.session.begin():
+            first_company_id = self.repository.create_company(
+                "First Company", CompanyStatus.PENDING_ACTIVATION, now
+            )
+            self.repository.create_invitation(
+                company_id=first_company_id,
+                invited_name="Ana",
+                email="Ana@Example.com",
+                phone=None,
+                intended_role=CompanyRole.COMPANY_ADMIN,
+                token_hash="pending-first-hash",
+                status=InvitationStatus.PENDING,
+                expires_at=now + timedelta(hours=24),
+                created_at=now,
+            )
+            self.assertTrue(self.repository.has_pending_invitation_for_email("ana@example.com"))
+
+        with self.assertRaises(CompanyOnboardingConflictError):
+            with self.session.begin():
+                second_company_id = self.repository.create_company(
+                    "Second Company", CompanyStatus.PENDING_ACTIVATION, now
+                )
+                self.repository.create_invitation(
+                    company_id=second_company_id,
+                    invited_name="Ana",
+                    email="ana@example.com",
+                    phone=None,
+                    intended_role=CompanyRole.COMPANY_ADMIN,
+                    token_hash="pending-second-hash",
+                    status=InvitationStatus.PENDING,
+                    expires_at=now + timedelta(hours=24),
+                    created_at=now,
+                )
     def test_claim_and_completion_are_idempotent(self) -> None:
         now = datetime.now(timezone.utc)
         with self.session.begin():
@@ -169,8 +208,10 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
         self.assertEqual("COMPANY", membership.scope.value)
         self.assertEqual("invitation.accept", audit.action)
 
-        with self.assertRaises(InvitationNotFoundError):
-            self.repository.get_invitation_acceptance_context("c" * 64, now)
+        accepted_context = self.repository.get_invitation_acceptance_context("c" * 64, now)
+        self.assertEqual(InvitationStatus.ACCEPTED, accepted_context.status)
+        with self.assertRaises(InvitationAlreadyAcceptedError):
+            self.repository.accept_invitation("c" * 64, now)
         self.session.rollback()
 
     def test_accepting_for_existing_user_does_not_change_password(self) -> None:

@@ -18,6 +18,7 @@ from app.src.domain.entities.company_onboarding.status import (
     OutboxStatus,
 )
 from app.src.domain.entities.company_onboarding.errors import (
+    CompanyOnboardingConflictError,
     InvalidCompanyOnboardingInputError,
 )
 
@@ -37,6 +38,10 @@ class FakeRepository:
         self.company = None
         self.invitation = None
         self.audit = []
+        self.pending_invitation_email = False
+
+    def has_pending_invitation_for_email(self, email):
+        return self.pending_invitation_email
 
     def create_company(self, name, status, created_at):
         self.company = {
@@ -158,6 +163,18 @@ class ProvisionCompanyUseCaseTests(unittest.TestCase):
             )
 
         self.assertEqual(0, self.unit_of_work.transactions)
+        self.assertIsNone(self.repository.company)
+
+    def test_rejects_an_email_with_an_existing_pending_invitation(self) -> None:
+        self.repository.pending_invitation_email = True
+
+        with self.assertRaises(CompanyOnboardingConflictError):
+            self.use_case.execute(
+                self.actor,
+                CompanyInvitationRequest("Acme", "Ana", "ANA@example.com"),
+            )
+
+        self.assertEqual(1, self.unit_of_work.transactions)
         self.assertIsNone(self.repository.company)
 
     def test_rejects_blank_company_name(self) -> None:

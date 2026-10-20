@@ -9,6 +9,7 @@ from app.src.domain.dtos.company_onboarding import (
 from app.src.domain.entities.access.company_role import CompanyRole
 from app.src.domain.entities.authentication.user import AuthenticatedUser
 from app.src.domain.entities.company_onboarding.errors import (
+    CompanyOnboardingConflictError,
     InvalidCompanyOnboardingInputError,
 )
 from app.src.domain.entities.company_onboarding.status import (
@@ -52,6 +53,10 @@ class ProvisionCompanyUseCase(ProvisionCompany):
         issued_token = self._token_issuer.issue()
 
         with self._unit_of_work.transaction():
+            if self._repository.has_pending_invitation_for_email(email):
+                raise CompanyOnboardingConflictError(
+                    "An active invitation already exists for this email address."
+                )
             company_id = self._repository.create_company(
                 company_name,
                 CompanyStatus.PENDING_ACTIVATION,

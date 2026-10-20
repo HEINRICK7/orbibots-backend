@@ -39,6 +39,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             {
                 "ix_invitation_email_outbox_due",
                 "uq_invitations_company_email_lower",
+                "uq_invitations_pending_email_lower",
                 "uq_memberships_active_user_company",
                 "uq_users_email_lower",
             },

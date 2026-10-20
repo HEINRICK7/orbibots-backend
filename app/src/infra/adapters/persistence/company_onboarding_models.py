@@ -142,6 +142,9 @@ class Invitation(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     company: Mapped[Company] = relationship(back_populates="invitations")
+    email_outbox_events: Mapped[list["InvitationEmailOutbox"]] = relationship(
+        back_populates="invitation"
+    )
 
 
 Index(
@@ -149,6 +152,14 @@ Index(
     Invitation.company_id,
     func.lower(Invitation.email),
     unique=True,
+)
+
+Index(
+    "uq_invitations_pending_email_lower",
+    func.lower(Invitation.email),
+    unique=True,
+    postgresql_where=text("status = 'PENDING'"),
+    sqlite_where=text("status = 'PENDING'"),
 )
 
 
@@ -208,6 +219,8 @@ class InvitationEmailOutbox(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+    invitation: Mapped[Invitation] = relationship(back_populates="email_outbox_events")
 
 
 Index(

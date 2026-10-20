@@ -40,11 +40,13 @@ class InvitationValidationRequest(BaseModel):
 
 
 class InvitationValidationResponse(BaseModel):
+    company_id: UUID
     company_name: str
     invited_name: str
     email_masked: str
     role: CompanyRole
     expires_at: datetime
+    status: InvitationStatus
 
 
 class AcceptInvitationRequest(BaseModel):
@@ -74,6 +76,7 @@ class InvitationSummaryResponse(BaseModel):
     status: InvitationStatus
     expires_at: datetime
     created_at: datetime
+    email_delivery_status: OutboxStatus | None = None
 
 
 class CompanyOnboardingSummaryResponse(BaseModel):

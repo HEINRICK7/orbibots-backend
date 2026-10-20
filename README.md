@@ -117,7 +117,8 @@ Company onboarding is available under `/company-onboarding`:
 - `POST /company-onboarding/companies` lets a global `ADMIN` create a pending
   company and invite its first `COMPANY_ADMIN`. It returns the company and
   invitation IDs and the outbox delivery state; it never returns the invitation
-  token.
+  token. An email with a pending invitation cannot be used for a second company;
+  the existing invitation can be resent or revoked by the global `ADMIN`.
 - `GET /company-onboarding/companies` lists companies and their invitation
   summaries for the global `ADMIN` console. It returns canonical company and
   invitation statuses without invitation tokens, hashes, or outbox data.
@@ -126,7 +127,8 @@ Company onboarding is available under `/company-onboarding`:
   a global `ADMIN`.
 - `POST /company-onboarding/public/invitations/validate` accepts the invitation
   token in the JSON body and returns the company, invitee name, masked email,
-  and expiry.
+  expiry, company ID, and current status. A previously accepted invitation can
+  still be identified as accepted, but cannot be accepted a second time.
 - `POST /company-onboarding/public/invitations/accept` accepts the same one-time
   token, activates the company membership, and returns a short-lived bearer
   access token. The invitation token itself is never returned. New users do not
