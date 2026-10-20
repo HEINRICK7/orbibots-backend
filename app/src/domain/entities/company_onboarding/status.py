@@ -11,3 +11,16 @@ class MembershipStatus(EnumStr):
     ACTIVE = "ACTIVE"
     SUSPENDED = "SUSPENDED"
     REVOKED = "REVOKED"
+
+
+class InvitationStatus(EnumStr):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
+
+
+class AuditOutcome(EnumStr):
+    SUCCESS = "SUCCESS"
+    DENIED = "DENIED"
+    FAILURE = "FAILURE"

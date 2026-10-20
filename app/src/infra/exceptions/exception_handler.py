@@ -9,6 +9,13 @@ from app.src.domain.entities.authentication.errors import (
     AuthenticationError,
     InvalidCredentialsError,
 )
+from app.src.domain.entities.company_onboarding.errors import (
+    CompanyOnboardingConflictError,
+    InvalidCompanyOnboardingInputError,
+    InvitationNotFoundError,
+    InvitationRateLimitError,
+    InvitationStateError,
+)
 from app.src.infra.exceptions.error_code import ErrorCode
 from app.src.infra.exceptions.errors import (
     AuthenticationRequiredError,
@@ -56,6 +63,31 @@ class ExceptionHandler:
             ErrorCode.DATABASE_UNAVAILABLE,
             503,
             "Database is not configured.",
+        ),
+        InvalidCompanyOnboardingInputError: ExceptionMapping(
+            ErrorCode.INVALID_REQUEST,
+            422,
+            "The request data is invalid.",
+        ),
+        InvitationNotFoundError: ExceptionMapping(
+            ErrorCode.INVITATION_UNAVAILABLE,
+            400,
+            "The invitation is invalid or unavailable.",
+        ),
+        InvitationStateError: ExceptionMapping(
+            ErrorCode.INVITATION_UNAVAILABLE,
+            400,
+            "The invitation is invalid or unavailable.",
+        ),
+        CompanyOnboardingConflictError: ExceptionMapping(
+            ErrorCode.CONFLICT,
+            409,
+            "The requested onboarding operation conflicts with existing data.",
+        ),
+        InvitationRateLimitError: ExceptionMapping(
+            ErrorCode.RATE_LIMITED,
+            429,
+            "Please wait before requesting another invitation email.",
         ),
     }
     _unexpected = ExceptionMapping(

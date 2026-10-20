@@ -17,6 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.src.domain.entities.company_onboarding.membership_scope import MembershipScope
 from app.src.domain.entities.company_onboarding.status import (
     CompanyStatus,
+    InvitationStatus,
     MembershipStatus,
 )
 from app.src.infra.adapters.persistence.database import Base
@@ -126,7 +127,10 @@ class Invitation(Base):
     intended_scope: Mapped[MembershipScope | None] = mapped_column(membership_scope_type)
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="PENDING", server_default="PENDING"
+        String(32),
+        nullable=False,
+        default=InvitationStatus.PENDING.value,
+        server_default=InvitationStatus.PENDING.value,
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

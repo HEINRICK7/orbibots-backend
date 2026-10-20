@@ -9,6 +9,13 @@ from app.src.domain.entities.authentication.errors import (
     AuthenticationError,
     InvalidCredentialsError,
 )
+from app.src.domain.entities.company_onboarding.errors import (
+    CompanyOnboardingConflictError,
+    InvalidCompanyOnboardingInputError,
+    InvitationNotFoundError,
+    InvitationRateLimitError,
+    InvitationStateError,
+)
 from app.src.infra.exceptions.error_code import ErrorCode
 from app.src.infra.exceptions.errors import (
     AuthenticationRequiredError,
@@ -25,6 +32,11 @@ class ExceptionHandlerTests(unittest.TestCase):
             (AuthenticationRequiredError(), ErrorCode.AUTHENTICATION_REQUIRED, 401),
             (AccessDeniedError("denied"), ErrorCode.ACCESS_DENIED, 403),
             (DatabaseUnavailableError(), ErrorCode.DATABASE_UNAVAILABLE, 503),
+            (InvalidCompanyOnboardingInputError(), ErrorCode.INVALID_REQUEST, 422),
+            (InvitationNotFoundError(), ErrorCode.INVITATION_UNAVAILABLE, 400),
+            (InvitationStateError(), ErrorCode.INVITATION_UNAVAILABLE, 400),
+            (CompanyOnboardingConflictError(), ErrorCode.CONFLICT, 409),
+            (InvitationRateLimitError(), ErrorCode.RATE_LIMITED, 429),
         )
 
         for error, expected_code, expected_status in cases:
