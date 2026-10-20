@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.src.domain.dtos.company_onboarding import CompanyInvitationRequest
 from app.src.domain.entities.access.company_role import CompanyRole
 from app.src.domain.entities.company_onboarding.status import (
+    CompanyStatus,
     InvitationStatus,
     OutboxStatus,
 )
@@ -73,6 +74,17 @@ class InvitationSummaryResponse(BaseModel):
     status: InvitationStatus
     expires_at: datetime
     created_at: datetime
+
+
+class CompanyOnboardingSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    status: CompanyStatus
+    created_at: datetime
+    activated_at: datetime | None
+    invitations: list[InvitationSummaryResponse]
 
 
 class ResendInvitationResponse(BaseModel):

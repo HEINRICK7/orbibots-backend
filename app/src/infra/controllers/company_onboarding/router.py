@@ -12,6 +12,7 @@ from app.src.domain.interfaces.usecases.company_onboarding import (
     AcceptInvitation,
     GetInvitationAcceptanceContext,
     ListCompanyInvitations,
+    ListCompanyOnboarding,
     ProvisionCompany,
     ResendInvitation,
     RevokeInvitation,
@@ -24,6 +25,7 @@ from app.src.infra.controllers.authentication.dependencies import (
 from app.src.infra.controllers.company_onboarding.schemas import (
     AcceptInvitationRequest,
     AcceptInvitationResponse,
+    CompanyOnboardingSummaryResponse,
     InvitationSummaryResponse,
     InvitationValidationRequest,
     InvitationValidationResponse,
@@ -40,6 +42,7 @@ InvitationContextUseCaseProvider = Callable[[DatabaseSession], GetInvitationAcce
 ResendInvitationUseCaseProvider = Callable[[DatabaseSession], ResendInvitation]
 RevokeInvitationUseCaseProvider = Callable[[DatabaseSession], RevokeInvitation]
 ListCompanyInvitationsUseCaseProvider = Callable[[DatabaseSession], ListCompanyInvitations]
+ListCompanyOnboardingUseCaseProvider = Callable[[DatabaseSession], ListCompanyOnboarding]
 InvitationEmailDispatcherProvider = Callable[[DatabaseSession], SendInvitationEmail]
 GlobalAdminDependency = Callable[..., AuthenticatedUser]
 
@@ -53,6 +56,7 @@ class CompanyOnboardingRouter:
         resend_invitation: ResendInvitationUseCaseProvider,
         revoke_invitation: RevokeInvitationUseCaseProvider,
         list_company_invitations: ListCompanyInvitationsUseCaseProvider,
+        list_company_onboarding: ListCompanyOnboardingUseCaseProvider,
         require_global_admin: GlobalAdminDependency,
         invitation_email_dispatcher: InvitationEmailDispatcherProvider | None,
     ) -> None:
@@ -62,6 +66,7 @@ class CompanyOnboardingRouter:
         self._resend_invitation = resend_invitation
         self._revoke_invitation = revoke_invitation
         self._list_company_invitations = list_company_invitations
+        self._list_company_onboarding = list_company_onboarding
         self._invitation_email_dispatcher = invitation_email_dispatcher
         self.router = APIRouter()
 
@@ -78,6 +83,16 @@ class CompanyOnboardingRouter:
             session: DatabaseSession = Depends(database_session_dependency),
         ) -> list[InvitationSummaryResponse]:
             return self._list_invitations(company_id, actor, session)
+
+        def list_companies_route(
+            actor: AuthenticatedUser = Depends(require_global_admin),
+            session: DatabaseSession = Depends(database_session_dependency),
+        ) -> list[CompanyOnboardingSummaryResponse]:
+            summaries = self._list_company_onboarding(session).execute(actor)
+            return [
+                CompanyOnboardingSummaryResponse.model_validate(item)
+                for item in summaries
+            ]
 
         def resend_route(
             invitation_id: UUID,
@@ -105,6 +120,12 @@ class CompanyOnboardingRouter:
         ) -> AcceptInvitationResponse:
             return self._accept(payload, session)
 
+        self.router.add_api_route(
+            "/companies",
+            list_companies_route,
+            methods=["GET"],
+            response_model=list[CompanyOnboardingSummaryResponse],
+        )
         self.router.add_api_route(
             "/companies",
             provision_route,

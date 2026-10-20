@@ -7,6 +7,9 @@ from app.src.application.usecases.get_invitation_acceptance_context import (
 from app.src.application.usecases.list_company_invitations import (
     ListCompanyInvitationsUseCase,
 )
+from app.src.application.usecases.list_company_onboarding import (
+    ListCompanyOnboardingUseCase,
+)
 from app.src.application.usecases.provision_company import ProvisionCompanyUseCase
 from app.src.application.usecases.resend_invitation import ResendInvitationUseCase
 from app.src.application.usecases.revoke_invitation import RevokeInvitationUseCase
@@ -79,6 +82,12 @@ class CompanyOnboardingUseCaseProvider:
 
     def list_company_invitations(self, session: Session) -> ListCompanyInvitationsUseCase:
         return ListCompanyInvitationsUseCase(
+            repository=SqlAlchemyCompanyOnboardingRepository(session),
+            require_global_admin=self._require_global_admin,
+        )
+
+    def list_company_onboarding(self, session: Session) -> ListCompanyOnboardingUseCase:
+        return ListCompanyOnboardingUseCase(
             repository=SqlAlchemyCompanyOnboardingRepository(session),
             require_global_admin=self._require_global_admin,
         )

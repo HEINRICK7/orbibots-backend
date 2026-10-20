@@ -1,6 +1,7 @@
 from app.src.domain.dtos.company_onboarding import (
     AcceptedInvitationSession,
     CompanyInvitationRequest,
+    CompanyOnboardingSummary,
     EmailDispatchResult,
     InvitationAcceptanceContext,
     InvitationSummary,
@@ -38,6 +39,12 @@ class ListCompanyInvitations:
     def execute(
         self, actor: AuthenticatedUser, company_id: UUID
     ) -> tuple[InvitationSummary, ...]: ...
+
+
+class ListCompanyOnboarding:
+    def execute(
+        self, actor: AuthenticatedUser
+    ) -> tuple[CompanyOnboardingSummary, ...]: ...
 
 
 class GetInvitationAcceptanceContext:

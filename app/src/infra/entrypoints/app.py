@@ -144,6 +144,7 @@ def create_app(
             resend_invitation=onboarding_use_cases.resend_invitation,
             revoke_invitation=onboarding_use_cases.revoke_invitation,
             list_company_invitations=onboarding_use_cases.list_company_invitations,
+            list_company_onboarding=onboarding_use_cases.list_company_onboarding,
             require_global_admin=require_global_admin_dependency,
             invitation_email_dispatcher=invitation_email_dispatcher_provider,
         ).router,

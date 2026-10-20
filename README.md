@@ -118,6 +118,9 @@ Company onboarding is available under `/company-onboarding`:
   company and invite its first `COMPANY_ADMIN`. It returns the company and
   invitation IDs and the outbox delivery state; it never returns the invitation
   token.
+- `GET /company-onboarding/companies` lists companies and their invitation
+  summaries for the global `ADMIN` console. It returns canonical company and
+  invitation statuses without invitation tokens, hashes, or outbox data.
 - `GET /company-onboarding/companies/{company_id}/invitations`, plus `POST`
   `/company-onboarding/invitations/{invitation_id}/resend` and `/revoke`, require
   a global `ADMIN`.

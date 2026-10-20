@@ -4,6 +4,7 @@ from uuid import UUID
 
 from app.src.domain.dtos.company_onboarding import (
     AcceptedInvitation,
+    CompanyOnboardingSummary,
     InvitationAcceptanceContext,
     InvitationEmailJob,
     InvitationSummary,
@@ -73,6 +74,8 @@ class CompanyOnboardingRepository(Protocol):
     def list_company_invitations(
         self, company_id: UUID
     ) -> tuple[InvitationSummary, ...]: ...
+
+    def list_company_onboarding(self) -> tuple[CompanyOnboardingSummary, ...]: ...
 
 
 class InvitationOutboxRepository(Protocol):

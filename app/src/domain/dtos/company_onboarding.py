@@ -4,6 +4,7 @@ from uuid import UUID
 
 from app.src.domain.entities.access.company_role import CompanyRole
 from app.src.domain.entities.company_onboarding.status import (
+    CompanyStatus,
     InvitationStatus,
     OutboxStatus,
 )
@@ -61,6 +62,16 @@ class InvitationSummary:
     status: InvitationStatus
     expires_at: datetime
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class CompanyOnboardingSummary:
+    id: UUID
+    name: str
+    status: CompanyStatus
+    created_at: datetime
+    activated_at: datetime | None
+    invitations: tuple[InvitationSummary, ...]
 
 
 @dataclass(frozen=True)

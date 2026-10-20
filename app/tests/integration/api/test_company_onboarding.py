@@ -111,6 +111,21 @@ class CompanyOnboardingApiTests(unittest.TestCase):
         self.assertNotIn("raw_token", payload)
         self.assertEqual(InvitationStatus.PENDING.value, payload["invitation_status"])
         self.assertEqual(OutboxStatus.PENDING.value, payload["email_delivery_status"])
+
+        listing = self.client.get(
+            "/company-onboarding/companies",
+            headers=self.root_headers,
+        )
+        self.assertEqual(200, listing.status_code)
+        company_summary = next(
+            item for item in listing.json() if item["id"] == payload["company_id"]
+        )
+        self.assertEqual("Acme", company_summary["name"])
+        self.assertEqual(CompanyStatus.PENDING_ACTIVATION.value, company_summary["status"])
+        self.assertEqual(InvitationStatus.PENDING.value, company_summary["invitations"][0]["status"])
+        self.assertNotIn("token_hash", company_summary["invitations"][0])
+        self.assertNotIn("raw_token", str(company_summary))
+
         with self.session_factory() as session:
             company = session.get(Company, UUID(payload["company_id"]))
             invitation = session.get(Invitation, UUID(payload["invitation_id"]))
@@ -144,9 +159,14 @@ class CompanyOnboardingApiTests(unittest.TestCase):
             f"/company-onboarding/companies/{uuid4()}/invitations",
             headers=self.member_headers,
         )
+        company_list_response = self.client.get(
+            "/company-onboarding/companies",
+            headers=self.member_headers,
+        )
 
         self.assertEqual(403, create_response.status_code)
         self.assertEqual(403, list_response.status_code)
+        self.assertEqual(403, company_list_response.status_code)
 
     def test_public_validation_and_acceptance_create_active_admin_membership_once(self) -> None:
         raw_token = "test-invitation-token"

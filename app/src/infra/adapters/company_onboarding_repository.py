@@ -2,11 +2,12 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.src.domain.entities.access.company_role import CompanyRole
 from app.src.domain.dtos.company_onboarding import (
     AcceptedInvitation,
+    CompanyOnboardingSummary,
     InvitationAcceptanceContext,
     InvitationEmailJob,
     InvitationSummary,
@@ -242,6 +243,48 @@ class SqlAlchemyCompanyOnboardingRepository(
                 created_at=invitation.created_at,
             )
             for invitation in invitations
+        )
+
+    def list_company_onboarding(self) -> tuple[CompanyOnboardingSummary, ...]:
+        companies = self._session.scalars(
+            select(Company)
+            .options(selectinload(Company.invitations))
+            .order_by(Company.created_at.desc(), Company.id.asc())
+        ).all()
+        now = datetime.now(timezone.utc)
+        return tuple(
+            CompanyOnboardingSummary(
+                id=company.id,
+                name=company.name,
+                status=CompanyStatus(company.status),
+                created_at=company.created_at,
+                activated_at=company.activated_at,
+                invitations=tuple(
+                    InvitationSummary(
+                        id=invitation.id,
+                        company_id=company.id,
+                        company_name=company.name,
+                        invited_name=invitation.invited_name,
+                        email=invitation.email,
+                        intended_role=CompanyRole(invitation.intended_role),
+                        status=(
+                            InvitationStatus.EXPIRED
+                            if InvitationStatus(invitation.status)
+                            is InvitationStatus.PENDING
+                            and _as_utc(invitation.expires_at) <= now
+                            else InvitationStatus(invitation.status)
+                        ),
+                        expires_at=invitation.expires_at,
+                        created_at=invitation.created_at,
+                    )
+                    for invitation in sorted(
+                        company.invitations,
+                        key=lambda item: (item.created_at, str(item.id)),
+                        reverse=True,
+                    )
+                ),
+            )
+            for company in companies
         )
 
     def get_invitation_acceptance_context(
