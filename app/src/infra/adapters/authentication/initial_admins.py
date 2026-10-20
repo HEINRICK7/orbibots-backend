@@ -46,7 +46,7 @@ class SqlAlchemyInitialAdminProvisioningGateway(InitialAdminProvisioningGateway)
     ) -> ProvisioningCompany:
         company = Company(
             name=name,
-            status=CompanyStatus.ACTIVE.value,
+            status=CompanyStatus.ACTIVE,
             activated_at=activated_at,
         )
         self._session.add(company)
@@ -80,7 +80,7 @@ class SqlAlchemyInitialAdminProvisioningGateway(InitialAdminProvisioningGateway)
             name=name,
             email=email,
             password_hash=password_hash,
-            status=UserStatus.ACTIVE.value,
+            status=UserStatus.ACTIVE,
         )
         self._session.add(user)
         self._session.flush()
@@ -100,7 +100,7 @@ class SqlAlchemyInitialAdminProvisioningGateway(InitialAdminProvisioningGateway)
             select(Membership).where(
                 Membership.company_id == company_id,
                 Membership.user_id == user_id,
-                Membership.status == MembershipStatus.ACTIVE.value,
+                Membership.status == MembershipStatus.ACTIVE,
             )
         )
         if membership is None:
@@ -118,6 +118,6 @@ class SqlAlchemyInitialAdminProvisioningGateway(InitialAdminProvisioningGateway)
                 company_id=company_id,
                 user_id=user_id,
                 role=role.value,
-                status=MembershipStatus.ACTIVE.value,
+                status=MembershipStatus.ACTIVE,
             )
         )

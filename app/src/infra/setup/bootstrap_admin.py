@@ -38,7 +38,7 @@ class BootstrapAdmin:
                     name=name.strip() or "Administrador",
                     email=normalized_email,
                     password_hash=self._password_hasher.hash(password),
-                    status=UserStatus.ACTIVE.value,
+                    status=UserStatus.ACTIVE,
                 )
             )
             self._session.flush()

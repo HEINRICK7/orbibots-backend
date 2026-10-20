@@ -58,9 +58,10 @@ requires `DATABASE_URL` and a `JWT_SECRET_KEY` of at least 32 characters. The
 signing algorithm is HS256 and `ACCESS_TOKEN_EXPIRE_MINUTES` accepts values
 from 1 to 1440.
 
-This change does not provide account enrollment or password setup. Existing
-users have a nullable password hash and cannot log in until a separate secure
-provisioning flow sets one; no default password is created.
+The company invitation flow creates an account without setting a password and
+returns a bearer session after the invite is accepted. Password-based login
+after that session expires requires a separate password setup or recovery flow;
+this repository does not currently expose that flow.
 
 ### Local development administrator
 
@@ -108,6 +109,34 @@ contain exactly two distinct valid email addresses and match the initial
 account identities; otherwise provisioning fails before database changes.
 Provisioning is safe to rerun: existing accounts are not given new passwords,
 and conflicting inactive accounts or memberships cause an explicit error.
+
+## Company onboarding by invitation
+
+Company onboarding is available under `/company-onboarding`:
+
+- `POST /company-onboarding/companies` lets a global `ADMIN` create a pending
+  company and invite its first `COMPANY_ADMIN`. It returns the company and
+  invitation IDs and the outbox delivery state; it never returns the invitation
+  token.
+- `GET /company-onboarding/companies/{company_id}/invitations`, plus `POST`
+  `/company-onboarding/invitations/{invitation_id}/resend` and `/revoke`, require
+  a global `ADMIN`.
+- `POST /company-onboarding/public/invitations/validate` accepts the invitation
+  token in the JSON body and returns the company, invitee name, masked email,
+  and expiry.
+- `POST /company-onboarding/public/invitations/accept` accepts the same one-time
+  token, activates the company membership, and returns a short-lived bearer
+  access token. The invitation token itself is never returned. New users do not
+  set a password during acceptance; they can use the returned session to enter
+  their company.
+
+Configure `COMPANY_INVITATION_URL`, `SMTP_HOST`, and `EMAIL_FROM` to deliver
+invitation emails. `SMTP_USERNAME` and `SMTP_PASSWORD` are optional together;
+port 465 uses implicit TLS and other ports use STARTTLS. Delivery uses a
+transactional outbox with retries. SMTP is optional in development and tests,
+but required in staging and production, where the invitation URL must use
+HTTPS. The one-time invitation token is stored only as a hash and expires after
+24 hours.
 
 ## Project layout
 
