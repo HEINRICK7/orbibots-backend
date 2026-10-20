@@ -15,6 +15,7 @@ from app.src.domain.entities.company_onboarding.status import (
     AuditOutcome,
     CompanyStatus,
     InvitationStatus,
+    OutboxStatus,
 )
 from app.src.domain.entities.company_onboarding.errors import (
     InvalidCompanyOnboardingInputError,
@@ -74,6 +75,9 @@ class FakeRepository:
 
     def create_audit_event(self, actor_user_id, company_id, action, outcome):
         self.audit.append((actor_user_id, company_id, action, outcome))
+
+    def create_invitation_outbox_event(self, invitation_id, created_at):
+        return UUID("00000000-0000-0000-0000-000000000005")
 
 
 class FakeGlobalAdminAuthorizer:
@@ -137,6 +141,9 @@ class ProvisionCompanyUseCaseTests(unittest.TestCase):
         self.assertGreaterEqual(self.repository.invitation["expires_at"], before + timedelta(hours=24))
         self.assertLessEqual(self.repository.invitation["expires_at"], after + timedelta(hours=24))
         self.assertEqual("one-time-secret", result.raw_token)
+        self.assertEqual(
+            UUID("00000000-0000-0000-0000-000000000005"), result.outbox_id
+        )
         self.assertEqual(1, self.unit_of_work.transactions)
         self.assertEqual(
             [(self.actor.id, self.repository.company["id"], "company.provision", AuditOutcome.SUCCESS)],

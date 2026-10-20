@@ -10,6 +10,7 @@ from app.src.domain.entities.company_onboarding.status import (
     AuditOutcome,
     CompanyStatus,
     InvitationStatus,
+    OutboxStatus,
 )
 from app.src.infra.adapters.company_onboarding_repository import (
     SqlAlchemyCompanyOnboardingRepository,
@@ -18,6 +19,7 @@ from app.src.infra.adapters.persistence.company_onboarding_models import (
     AuditEvent,
     Company,
     Invitation,
+    InvitationEmailOutbox,
 )
 from app.src.infra.setup import model_registry
 from app.src.infra.adapters.persistence.transaction import SqlAlchemyUnitOfWork
@@ -62,15 +64,62 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
             self.repository.create_audit_event(
                 actor_id, company_id, "company.provision", AuditOutcome.SUCCESS
             )
+            outbox_id = self.repository.create_invitation_outbox_event(
+                invitation_id, now
+            )
 
         company = self.session.get(Company, company_id)
         invitation = self.session.get(Invitation, invitation_id)
         audit = self.session.scalar(select(AuditEvent))
+        outbox = self.session.get(InvitationEmailOutbox, outbox_id)
         self.assertEqual(CompanyStatus.PENDING_ACTIVATION.value, company.status)
         self.assertEqual(CompanyRole.COMPANY_ADMIN.value, invitation.intended_role)
         self.assertEqual(InvitationStatus.PENDING.value, invitation.status)
         self.assertEqual("a" * 64, invitation.token_hash)
         self.assertEqual(AuditOutcome.SUCCESS.value, audit.outcome)
+        self.assertEqual(OutboxStatus.PENDING.value, outbox.status)
+
+    def test_claim_and_completion_are_idempotent(self) -> None:
+        now = datetime.now(timezone.utc)
+        with self.session.begin():
+            company_id = self.repository.create_company(
+                "Acme", CompanyStatus.PENDING_ACTIVATION, now
+            )
+            invitation_id = self.repository.create_invitation(
+                company_id=company_id,
+                invited_name="Ana",
+                email="ana@example.com",
+                phone=None,
+                intended_role=CompanyRole.COMPANY_ADMIN,
+                token_hash="b" * 64,
+                status=InvitationStatus.PENDING,
+                expires_at=now + timedelta(hours=24),
+                created_at=now,
+            )
+            outbox_id = self.repository.create_invitation_outbox_event(
+                invitation_id, now
+            )
+
+        with self.session.begin():
+            job = self.repository.claim_invitation_email(
+                outbox_id, now, now - timedelta(minutes=5)
+            )
+        self.assertIsNotNone(job)
+        self.assertEqual(OutboxStatus.PROCESSING, job.status)
+        self.assertEqual(1, job.attempts)
+
+        with self.session.begin():
+            self.repository.mark_invitation_email_sent(outbox_id, now)
+        with self.session.begin():
+            duplicate = self.repository.claim_invitation_email(
+                outbox_id, now, now - timedelta(minutes=5)
+            )
+
+        self.assertIsNone(duplicate)
+        self.assertEqual(
+            OutboxStatus.SENT.value,
+            self.session.get(InvitationEmailOutbox, outbox_id).status,
+        )
 
     def test_unit_of_work_rolls_back_company_and_invitation_if_audit_fails(self) -> None:
         from app.src.application.usecases.provision_company import (
@@ -115,6 +164,7 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
 
         self.assertEqual(0, len(self.session.scalars(select(Company)).all()))
         self.assertEqual(0, len(self.session.scalars(select(Invitation)).all()))
+        self.assertEqual(0, len(self.session.scalars(select(InvitationEmailOutbox)).all()))
 
 
 if __name__ == "__main__":

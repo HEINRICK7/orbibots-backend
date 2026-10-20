@@ -3,7 +3,10 @@ from datetime import datetime
 from uuid import UUID
 
 from app.src.domain.entities.access.company_role import CompanyRole
-from app.src.domain.entities.company_onboarding.status import InvitationStatus
+from app.src.domain.entities.company_onboarding.status import (
+    InvitationStatus,
+    OutboxStatus,
+)
 
 
 @dataclass(frozen=True)
@@ -24,6 +27,7 @@ class IssuedInvitationToken:
 class ProvisionCompanyResult:
     company_id: UUID
     invitation_id: UUID
+    outbox_id: UUID
     company_name: str
     admin_name: str
     email: str
@@ -57,3 +61,29 @@ class InvitationSummary:
     status: InvitationStatus
     expires_at: datetime
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class InvitationEmailJob:
+    outbox_id: UUID
+    invitation_id: UUID
+    company_name: str
+    invited_name: str
+    email: str
+    status: OutboxStatus
+    attempts: int
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
+class InvitationEmailMessage:
+    recipient: str
+    subject: str
+    text_body: str = field(repr=False)
+    html_body: str = field(repr=False)
+    message_id: str
+
+
+@dataclass(frozen=True)
+class EmailDispatchResult:
+    sent: bool

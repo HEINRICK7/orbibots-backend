@@ -21,7 +21,14 @@ class ArchitectureBoundaryTests(unittest.TestCase):
 
         self.assertEqual(
             set(Base.metadata.tables),
-            {"audit_events", "companies", "invitations", "memberships", "users"},
+            {
+                "audit_events",
+                "companies",
+                "invitation_email_outbox",
+                "invitations",
+                "memberships",
+                "users",
+            },
         )
         self.assertEqual(
             {
@@ -30,6 +37,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 for index in table.indexes
             },
             {
+                "ix_invitation_email_outbox_due",
                 "uq_invitations_company_email_lower",
                 "uq_memberships_active_user_company",
                 "uq_users_email_lower",

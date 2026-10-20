@@ -1,4 +1,5 @@
-from typing import Any, ContextManager
+from contextlib import contextmanager
+from typing import Any, ContextManager, Iterator
 
 from sqlalchemy.orm import Session
 
@@ -10,4 +11,21 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self._session = session
 
     def transaction(self) -> ContextManager[Any]:
-        return self._session.begin()
+        @contextmanager
+        def begin() -> Iterator[None]:
+            if not self._session.in_transaction():
+                with self._session.begin():
+                    yield
+                return
+
+            nested = self._session.begin_nested()
+            try:
+                yield
+                nested.commit()
+            except Exception:
+                nested.rollback()
+                raise
+            else:
+                self._session.commit()
+
+        return begin()

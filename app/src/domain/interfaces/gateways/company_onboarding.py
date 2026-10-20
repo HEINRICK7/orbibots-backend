@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from app.src.domain.dtos.company_onboarding import InvitationEmailJob
 from app.src.domain.entities.access.company_role import CompanyRole
 from app.src.domain.entities.company_onboarding.status import (
     AuditOutcome,
@@ -35,3 +36,28 @@ class CompanyOnboardingRepository(Protocol):
         action: str,
         outcome: AuditOutcome,
     ) -> None: ...
+
+    def create_invitation_outbox_event(
+        self, invitation_id: UUID, created_at: datetime
+    ) -> UUID: ...
+
+
+class InvitationOutboxRepository(Protocol):
+    def claim_invitation_email(
+        self,
+        outbox_id: UUID,
+        now: datetime,
+        stale_before: datetime,
+        token_hash: str | None = None,
+        expires_at: datetime | None = None,
+    ) -> InvitationEmailJob | None: ...
+
+    def mark_invitation_email_sent(self, outbox_id: UUID, delivered_at: datetime) -> None: ...
+
+    def schedule_invitation_email_retry(
+        self, outbox_id: UUID, attempted_at: datetime, retry_at: datetime
+    ) -> None: ...
+
+    def list_pending_invitation_emails(
+        self, now: datetime, limit: int
+    ) -> tuple[UUID, ...]: ...

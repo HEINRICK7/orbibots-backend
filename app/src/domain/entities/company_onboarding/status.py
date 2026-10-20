@@ -24,3 +24,10 @@ class AuditOutcome(EnumStr):
     SUCCESS = "SUCCESS"
     DENIED = "DENIED"
     FAILURE = "FAILURE"
+
+
+class OutboxStatus(EnumStr):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    SENT = "SENT"
+    FAILED = "FAILED"

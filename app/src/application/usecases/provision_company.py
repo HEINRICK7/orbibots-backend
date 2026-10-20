@@ -68,6 +68,10 @@ class ProvisionCompanyUseCase(ProvisionCompany):
                 expires_at=expires_at,
                 created_at=now,
             )
+            outbox_id = self._repository.create_invitation_outbox_event(
+                invitation_id,
+                now,
+            )
             self._repository.create_audit_event(
                 actor.id,
                 company_id,
@@ -78,6 +82,7 @@ class ProvisionCompanyUseCase(ProvisionCompany):
         return ProvisionCompanyResult(
             company_id=company_id,
             invitation_id=invitation_id,
+            outbox_id=outbox_id,
             company_name=company_name,
             admin_name=admin_name,
             email=email,

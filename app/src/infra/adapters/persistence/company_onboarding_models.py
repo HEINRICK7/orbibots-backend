@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Integer,
     Index,
     String,
     Uuid,
@@ -19,6 +20,7 @@ from app.src.domain.entities.company_onboarding.status import (
     CompanyStatus,
     InvitationStatus,
     MembershipStatus,
+    OutboxStatus,
 )
 from app.src.infra.adapters.persistence.database import Base
 
@@ -173,3 +175,43 @@ class AuditEvent(Base):
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class InvitationEmailOutbox(Base):
+    __tablename__ = "invitation_email_outbox"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING', 'PROCESSING', 'SENT', 'FAILED')",
+            name="ck_invitation_email_outbox_status",
+        ),
+        CheckConstraint("attempts >= 0", name="ck_invitation_email_outbox_attempts"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    invitation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("invitations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=OutboxStatus.PENDING.value,
+        server_default=OutboxStatus.PENDING.value,
+    )
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+Index(
+    "ix_invitation_email_outbox_due",
+    InvitationEmailOutbox.status,
+    InvitationEmailOutbox.next_attempt_at,
+)

@@ -3,6 +3,7 @@ from app.src.infra.adapters.persistence.company_onboarding_models import (
     AuditEvent,
     Company,
     Invitation,
+    InvitationEmailOutbox,
     Membership,
 )
 from app.src.infra.adapters.persistence.database import Base
@@ -13,6 +14,7 @@ __all__ = [
     "Base",
     "Company",
     "Invitation",
+    "InvitationEmailOutbox",
     "Membership",
     "UserRecord",
 ]

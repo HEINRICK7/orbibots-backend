@@ -21,6 +21,7 @@ from app.src.infra.setup.settings import load_environment
 ONBOARDING_TABLES = {
     "audit_events",
     "companies",
+    "invitation_email_outbox",
     "invitations",
     "memberships",
     "users",
@@ -94,6 +95,7 @@ class PostgresSchemaTests(unittest.TestCase):
         self.assertIn("uq_users_email_lower", index_names)
         self.assertIn("uq_memberships_active_user_company", index_names)
         self.assertIn("uq_invitations_company_email_lower", index_names)
+        self.assertIn("ix_invitation_email_outbox_due", index_names)
 
         membership_foreign_keys = {
             tuple(foreign_key["constrained_columns"]): foreign_key["referred_table"]

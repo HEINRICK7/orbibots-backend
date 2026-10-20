@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -28,6 +29,12 @@ class Settings:
     bootstrap_admin_password: str | None = None
     bootstrap_admin_name: str = "Administrador"
     global_admin_allowed_emails: tuple[str, ...] = ()
+    invitation_base_url: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
 
     def __post_init__(self) -> None:
         if self.app_env not in {"development", "test", "staging", "production"}:
@@ -38,6 +45,40 @@ class Settings:
             raise ConfigurationError("JWT_ALGORITHM must be HS256.")
         if not 1 <= self.access_token_expire_minutes <= 1440:
             raise ConfigurationError("ACCESS_TOKEN_EXPIRE_MINUTES must be between 1 and 1440.")
+        if not 1 <= self.smtp_port <= 65535:
+            raise ConfigurationError("SMTP_PORT must be between 1 and 65535.")
+        smtp_configured = any(
+            (
+                self.smtp_host,
+                self.smtp_username,
+                self.smtp_password,
+                self.smtp_from_email,
+            )
+        )
+        if smtp_configured and (not self.smtp_host or not self.smtp_from_email):
+            raise ConfigurationError(
+                "SMTP_HOST and EMAIL_FROM are required when email delivery is configured."
+            )
+        if bool(self.smtp_username) != bool(self.smtp_password):
+            raise ConfigurationError(
+                "SMTP_USERNAME and SMTP_PASSWORD must be set together."
+            )
+        if smtp_configured and not self.invitation_base_url:
+            raise ConfigurationError(
+                "COMPANY_INVITATION_URL is required when email delivery is configured."
+            )
+        if self.app_env in {"staging", "production"} and not smtp_configured:
+            raise ConfigurationError(
+                "SMTP_HOST and EMAIL_FROM are required in staging and production."
+            )
+        if self.invitation_base_url:
+            invitation_url = urlsplit(self.invitation_base_url)
+            if invitation_url.scheme not in {"http", "https"} or not invitation_url.netloc:
+                raise ConfigurationError("COMPANY_INVITATION_URL must be an absolute HTTP URL.")
+            if self.app_env in {"staging", "production"} and invitation_url.scheme != "https":
+                raise ConfigurationError(
+                    "COMPANY_INVITATION_URL must use HTTPS in staging and production."
+                )
         email = (self.bootstrap_admin_email or "").strip()
         password = self.bootstrap_admin_password or ""
         if bool(email) != bool(password):
@@ -94,4 +135,14 @@ class Settings:
                 if global_admin_allowed_emails
                 else ()
             ),
+            invitation_base_url=os.getenv("COMPANY_INVITATION_URL") or None,
+            smtp_host=os.getenv("SMTP_HOST") or None,
+            smtp_port=int(os.getenv("SMTP_PORT", "587")),
+            smtp_username=os.getenv("SMTP_USERNAME") or None,
+            smtp_password=os.getenv("SMTP_PASSWORD") or None,
+            smtp_from_email=os.getenv("EMAIL_FROM") or None,
         )
+
+    @property
+    def invitation_email_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from_email and self.invitation_base_url)
