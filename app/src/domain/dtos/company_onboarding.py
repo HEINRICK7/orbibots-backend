@@ -96,8 +96,8 @@ class InvitationAcceptanceContext:
     company_name: str
     invited_name: str
     email: str
+    intended_role: CompanyRole
     expires_at: datetime
-    requires_password_setup: bool
 
 
 @dataclass(frozen=True)
@@ -106,6 +106,16 @@ class AcceptedInvitation:
     company_id: UUID
     company_name: str
     user_id: UUID
+
+
+@dataclass(frozen=True)
+class AcceptedInvitationSession:
+    invitation_id: UUID
+    company_id: UUID
+    company_name: str
+    user_id: UUID
+    access_token: str = field(repr=False)
+    expires_in: int
 
 
 @dataclass(frozen=True)

@@ -149,7 +149,7 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
 
         with self.session.begin():
             context = self.repository.get_invitation_acceptance_context("c" * 64, now)
-            accepted = self.repository.accept_invitation("c" * 64, now, "hash-value")
+            accepted = self.repository.accept_invitation("c" * 64, now)
 
         company = self.session.get(Company, company_id)
         invitation = self.session.get(Invitation, invitation_id)
@@ -158,11 +158,11 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
         audit = self.session.scalar(
             select(AuditEvent).where(AuditEvent.action == "invitation.accept")
         )
-        self.assertTrue(context.requires_password_setup)
+        self.assertEqual("ana@example.com", context.email)
         self.assertEqual(CompanyStatus.ACTIVE.value, company.status)
         self.assertIsNotNone(company.activated_at)
         self.assertEqual(InvitationStatus.ACCEPTED.value, invitation.status)
-        self.assertEqual("hash-value", user.password_hash)
+        self.assertIsNone(user.password_hash)
         self.assertEqual(UserStatus.ACTIVE.value, user.status)
         self.assertEqual(accepted.user_id, membership.user_id)
         self.assertEqual(CompanyRole.COMPANY_ADMIN.value, membership.role)
@@ -202,12 +202,10 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
             )
 
         with self.session.begin():
-            context = self.repository.get_invitation_acceptance_context("d" * 64, now)
-            accepted = self.repository.accept_invitation("d" * 64, now, None)
+            accepted = self.repository.accept_invitation("d" * 64, now)
 
         user = self.session.get(UserRecord, existing_user_id)
         invitation = self.session.get(Invitation, invitation_id)
-        self.assertFalse(context.requires_password_setup)
         self.assertEqual(existing_user_id, accepted.user_id)
         self.assertEqual("existing-password-hash", user.password_hash)
         self.assertEqual(InvitationStatus.ACCEPTED.value, invitation.status)
@@ -343,7 +341,7 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
                     intended_role=CompanyRole.COMPANY_ADMIN,
                     token_hash="secret-hash",
                     status=InvitationStatus.PENDING,
-                    expires_at=now + timedelta(hours=24),
+                    expires_at=now - timedelta(hours=1),
                     created_at=now,
                 )
             )
@@ -351,7 +349,7 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
         summaries = self.repository.list_company_invitations(company_id)
 
         self.assertEqual(1, len(summaries))
-        self.assertEqual(InvitationStatus.PENDING, summaries[0].status)
+        self.assertEqual(InvitationStatus.EXPIRED, summaries[0].status)
         self.assertEqual("Acme", summaries[0].company_name)
         self.assertNotIn("secret-hash", repr(summaries[0]))
         self.session.rollback()

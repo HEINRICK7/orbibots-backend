@@ -16,9 +16,10 @@ from app.src.domain.interfaces.adapters.company_onboarding import (
 from app.src.domain.interfaces.gateways.company_onboarding import (
     InvitationOutboxRepository,
 )
+from app.src.domain.interfaces.usecases.company_onboarding import SendInvitationEmail
 
 
-class SendInvitationEmailUseCase:
+class SendInvitationEmailUseCase(SendInvitationEmail):
     invitation_lifetime = timedelta(hours=24)
     claim_timeout = timedelta(minutes=5)
 

@@ -14,6 +14,18 @@ class InvitationStateError(CompanyOnboardingError):
     """The invitation cannot be used in its current state."""
 
 
+class InvitationExpiredError(InvitationStateError):
+    """The invitation's one-time credential has expired."""
+
+
+class InvitationRevokedError(InvitationNotFoundError):
+    """The invitation was revoked by an administrator."""
+
+
+class InvitationAlreadyAcceptedError(InvitationNotFoundError):
+    """The invitation was already used to create its membership."""
+
+
 class InvitationRateLimitError(CompanyOnboardingError):
     """The invitation operation is temporarily rate limited."""
 

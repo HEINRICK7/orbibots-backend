@@ -104,7 +104,17 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             set(response.json()["paths"]),
-            {"/auth/login", "/auth/me", "/health"},
+            {
+                "/auth/login",
+                "/auth/me",
+                "/health",
+                "/company-onboarding/companies",
+                "/company-onboarding/companies/{company_id}/invitations",
+                "/company-onboarding/invitations/{invitation_id}/resend",
+                "/company-onboarding/invitations/{invitation_id}/revoke",
+                "/company-onboarding/public/invitations/validate",
+                "/company-onboarding/public/invitations/accept",
+            },
         )
 
     def test_asgi_entry_point_is_inside_app_package(self) -> None:

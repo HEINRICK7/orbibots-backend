@@ -54,7 +54,7 @@ class CompanyOnboardingRepository(Protocol):
     ) -> InvitationAcceptanceContext: ...
 
     def accept_invitation(
-        self, token_hash: str, now: datetime, password_hash: str | None
+        self, token_hash: str, now: datetime
     ) -> AcceptedInvitation: ...
 
     def prepare_invitation_resend(

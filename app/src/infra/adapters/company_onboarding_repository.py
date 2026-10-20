@@ -15,9 +15,11 @@ from app.src.domain.dtos.company_onboarding import (
 )
 from app.src.domain.entities.company_onboarding.errors import (
     CompanyOnboardingConflictError,
-    InvalidCompanyOnboardingInputError,
+    InvitationAlreadyAcceptedError,
+    InvitationExpiredError,
     InvitationNotFoundError,
     InvitationRateLimitError,
+    InvitationRevokedError,
     InvitationStateError,
 )
 from app.src.domain.entities.company_onboarding.status import (
@@ -230,7 +232,12 @@ class SqlAlchemyCompanyOnboardingRepository(
                 invited_name=invitation.invited_name,
                 email=invitation.email,
                 intended_role=CompanyRole(invitation.intended_role),
-                status=InvitationStatus(invitation.status),
+                status=(
+                    InvitationStatus.EXPIRED
+                    if InvitationStatus(invitation.status) is InvitationStatus.PENDING
+                    and _as_utc(invitation.expires_at) <= datetime.now(timezone.utc)
+                    else InvitationStatus(invitation.status)
+                ),
                 expires_at=invitation.expires_at,
                 created_at=invitation.created_at,
             )
@@ -242,44 +249,32 @@ class SqlAlchemyCompanyOnboardingRepository(
         token_hash: str,
         now: datetime,
     ) -> InvitationAcceptanceContext:
-        invitation, company, user = self._load_invitation_acceptance(token_hash, now)
+        invitation, company, _ = self._load_invitation_acceptance(token_hash, now)
         return InvitationAcceptanceContext(
             invitation_id=invitation.id,
             company_id=company.id,
             company_name=company.name,
             invited_name=invitation.invited_name,
             email=invitation.email,
+            intended_role=CompanyRole(invitation.intended_role),
             expires_at=invitation.expires_at,
-            requires_password_setup=user is None or user.password_hash is None,
         )
 
     def accept_invitation(
         self,
         token_hash: str,
         now: datetime,
-        password_hash: str | None,
     ) -> AcceptedInvitation:
         invitation, company, user = self._load_invitation_acceptance(token_hash, now)
         if user is None:
-            if password_hash is None:
-                raise InvalidCompanyOnboardingInputError(
-                    "A password is required to create the account."
-                )
             user = UserRecord(
                 name=invitation.invited_name,
                 email=invitation.email,
-                password_hash=password_hash,
+                password_hash=None,
                 status=UserStatus.ACTIVE,
             )
             self._session.add(user)
             self._session.flush()
-        elif user.password_hash is None:
-            if password_hash is None:
-                raise InvalidCompanyOnboardingInputError(
-                    "A password is required to activate the account."
-                )
-            user.password_hash = password_hash
-
         active_membership = self._session.scalar(
             select(Membership)
             .where(
@@ -334,13 +329,19 @@ class SqlAlchemyCompanyOnboardingRepository(
             .where(Invitation.token_hash == token_hash)
             .with_for_update()
         )
-        if (
-            invitation is None
-            or InvitationStatus(invitation.status) is not InvitationStatus.PENDING
-        ):
+        if invitation is None:
+            raise InvitationNotFoundError()
+        status = InvitationStatus(invitation.status)
+        if status is InvitationStatus.REVOKED:
+            raise InvitationRevokedError()
+        if status is InvitationStatus.ACCEPTED:
+            raise InvitationAlreadyAcceptedError()
+        if status is InvitationStatus.EXPIRED:
+            raise InvitationExpiredError()
+        if status is not InvitationStatus.PENDING:
             raise InvitationNotFoundError()
         if _as_utc(invitation.expires_at) <= _as_utc(now):
-            raise InvitationStateError()
+            raise InvitationExpiredError()
         company = self._session.scalar(
             select(Company).where(Company.id == invitation.company_id).with_for_update()
         )

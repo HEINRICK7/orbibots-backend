@@ -1,6 +1,8 @@
 from app.src.domain.dtos.company_onboarding import (
-    AcceptedInvitation,
+    AcceptedInvitationSession,
     CompanyInvitationRequest,
+    EmailDispatchResult,
+    InvitationAcceptanceContext,
     InvitationSummary,
     ProvisionCompanyResult,
     ResentInvitation,
@@ -17,9 +19,7 @@ class ProvisionCompany:
 
 
 class AcceptInvitation:
-    def execute(
-        self, token: str, password: str | None = None
-    ) -> AcceptedInvitation: ...
+    def execute(self, token: str) -> AcceptedInvitationSession: ...
 
 
 class ResendInvitation:
@@ -38,3 +38,13 @@ class ListCompanyInvitations:
     def execute(
         self, actor: AuthenticatedUser, company_id: UUID
     ) -> tuple[InvitationSummary, ...]: ...
+
+
+class GetInvitationAcceptanceContext:
+    def execute(self, token: str) -> InvitationAcceptanceContext: ...
+
+
+class SendInvitationEmail:
+    def execute(self, outbox_id: UUID, raw_token: str | None = None) -> EmailDispatchResult: ...
+
+    def dispatch_pending(self, limit: int = 50) -> int: ...

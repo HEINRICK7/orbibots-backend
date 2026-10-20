@@ -11,9 +11,12 @@ from app.src.domain.entities.authentication.errors import (
 )
 from app.src.domain.entities.company_onboarding.errors import (
     CompanyOnboardingConflictError,
+    InvitationAlreadyAcceptedError,
+    InvitationExpiredError,
     InvalidCompanyOnboardingInputError,
     InvitationNotFoundError,
     InvitationRateLimitError,
+    InvitationRevokedError,
     InvitationStateError,
 )
 from app.src.infra.exceptions.error_code import ErrorCode
@@ -74,6 +77,21 @@ class ExceptionHandler:
             400,
             "The invitation is invalid or unavailable.",
         ),
+        InvitationExpiredError: ExceptionMapping(
+            ErrorCode.INVITATION_EXPIRED,
+            410,
+            "The invitation has expired.",
+        ),
+        InvitationRevokedError: ExceptionMapping(
+            ErrorCode.INVITATION_REVOKED,
+            410,
+            "The invitation was revoked.",
+        ),
+        InvitationAlreadyAcceptedError: ExceptionMapping(
+            ErrorCode.INVITATION_ALREADY_ACCEPTED,
+            409,
+            "The invitation was already accepted.",
+        ),
         InvitationStateError: ExceptionMapping(
             ErrorCode.INVITATION_UNAVAILABLE,
             400,
@@ -118,7 +136,7 @@ class ExceptionHandler:
 
         return JSONResponse(
             status_code=mapping.status_code,
-            content={"detail": mapping.safe_detail},
+            content={"code": mapping.code.value, "detail": mapping.safe_detail},
             headers=dict(mapping.headers or {}),
         )
 

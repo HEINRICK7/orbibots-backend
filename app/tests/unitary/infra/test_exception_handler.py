@@ -11,9 +11,12 @@ from app.src.domain.entities.authentication.errors import (
 )
 from app.src.domain.entities.company_onboarding.errors import (
     CompanyOnboardingConflictError,
+    InvitationAlreadyAcceptedError,
+    InvitationExpiredError,
     InvalidCompanyOnboardingInputError,
     InvitationNotFoundError,
     InvitationRateLimitError,
+    InvitationRevokedError,
     InvitationStateError,
 )
 from app.src.infra.exceptions.error_code import ErrorCode
@@ -34,6 +37,13 @@ class ExceptionHandlerTests(unittest.TestCase):
             (DatabaseUnavailableError(), ErrorCode.DATABASE_UNAVAILABLE, 503),
             (InvalidCompanyOnboardingInputError(), ErrorCode.INVALID_REQUEST, 422),
             (InvitationNotFoundError(), ErrorCode.INVITATION_UNAVAILABLE, 400),
+            (InvitationExpiredError(), ErrorCode.INVITATION_EXPIRED, 410),
+            (InvitationRevokedError(), ErrorCode.INVITATION_REVOKED, 410),
+            (
+                InvitationAlreadyAcceptedError(),
+                ErrorCode.INVITATION_ALREADY_ACCEPTED,
+                409,
+            ),
             (InvitationStateError(), ErrorCode.INVITATION_UNAVAILABLE, 400),
             (CompanyOnboardingConflictError(), ErrorCode.CONFLICT, 409),
             (InvitationRateLimitError(), ErrorCode.RATE_LIMITED, 429),
@@ -78,7 +88,7 @@ class ExceptionHandlerTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(
             json.loads(response.body),
-            {"detail": "Insufficient permissions."},
+            {"code": "ACCESS_DENIED", "detail": "Insufficient permissions."},
         )
 
 
