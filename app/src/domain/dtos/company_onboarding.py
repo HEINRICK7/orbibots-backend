@@ -106,3 +106,32 @@ class AcceptedInvitation:
     company_id: UUID
     company_name: str
     user_id: UUID
+
+
+@dataclass(frozen=True)
+class ResentInvitation:
+    invitation_id: UUID
+    company_id: UUID
+    outbox_id: UUID
+    company_name: str
+    invited_name: str
+    email: str
+    expires_at: datetime
+    raw_token: str = field(repr=False)
+
+
+@dataclass(frozen=True)
+class PreparedInvitationResend:
+    invitation_id: UUID
+    company_id: UUID
+    outbox_id: UUID
+    company_name: str
+    invited_name: str
+    email: str
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
+class RevokedInvitation:
+    invitation_id: UUID
+    company_id: UUID

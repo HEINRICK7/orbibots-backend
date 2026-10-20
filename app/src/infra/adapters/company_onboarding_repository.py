@@ -9,11 +9,15 @@ from app.src.domain.dtos.company_onboarding import (
     AcceptedInvitation,
     InvitationAcceptanceContext,
     InvitationEmailJob,
+    InvitationSummary,
+    PreparedInvitationResend,
+    RevokedInvitation,
 )
 from app.src.domain.entities.company_onboarding.errors import (
     CompanyOnboardingConflictError,
     InvalidCompanyOnboardingInputError,
     InvitationNotFoundError,
+    InvitationRateLimitError,
     InvitationStateError,
 )
 from app.src.domain.entities.company_onboarding.status import (
@@ -110,6 +114,128 @@ class SqlAlchemyCompanyOnboardingRepository(
         self._session.add(outbox_event)
         self._session.flush()
         return outbox_event.id
+
+    def prepare_invitation_resend(
+        self,
+        invitation_id: UUID,
+        now: datetime,
+        token_hash: str,
+        expires_at: datetime,
+        minimum_interval: timedelta,
+    ) -> PreparedInvitationResend:
+        outbox_events = self._session.scalars(
+            select(InvitationEmailOutbox)
+            .where(InvitationEmailOutbox.invitation_id == invitation_id)
+            .order_by(InvitationEmailOutbox.created_at.desc())
+            .with_for_update()
+        ).all()
+        invitation = self._session.scalar(
+            select(Invitation)
+            .where(Invitation.id == invitation_id)
+            .with_for_update()
+        )
+        if invitation is None:
+            raise InvitationNotFoundError()
+        if InvitationStatus(invitation.status) in {
+            InvitationStatus.ACCEPTED,
+            InvitationStatus.REVOKED,
+        }:
+            raise InvitationStateError()
+
+        if outbox_events and (
+            _as_utc(outbox_events[0].created_at) > _as_utc(now - minimum_interval)
+        ):
+            raise InvitationRateLimitError()
+
+        company = self._session.get(Company, invitation.company_id)
+        if company is None or CompanyStatus(company.status) is CompanyStatus.SUSPENDED:
+            raise InvitationStateError()
+
+        for outbox_event in outbox_events:
+            if OutboxStatus(outbox_event.status) in {
+                OutboxStatus.PENDING,
+                OutboxStatus.PROCESSING,
+            }:
+                outbox_event.status = OutboxStatus.FAILED
+
+        invitation.status = InvitationStatus.PENDING
+        invitation.token_hash = token_hash
+        invitation.expires_at = expires_at
+        invitation.revoked_at = None
+        outbox_id = self.create_invitation_outbox_event(invitation.id, now)
+        self._session.flush()
+        return PreparedInvitationResend(
+            invitation_id=invitation.id,
+            company_id=company.id,
+            outbox_id=outbox_id,
+            company_name=company.name,
+            invited_name=invitation.invited_name,
+            email=invitation.email,
+            expires_at=expires_at,
+        )
+
+    def revoke_invitation(
+        self,
+        invitation_id: UUID,
+        now: datetime,
+    ) -> RevokedInvitation:
+        outbox_events = self._session.scalars(
+            select(InvitationEmailOutbox)
+            .where(InvitationEmailOutbox.invitation_id == invitation_id)
+            .order_by(InvitationEmailOutbox.created_at)
+            .with_for_update()
+        ).all()
+        invitation = self._session.scalar(
+            select(Invitation)
+            .where(Invitation.id == invitation_id)
+            .with_for_update()
+        )
+        if invitation is None:
+            raise InvitationNotFoundError()
+        if InvitationStatus(invitation.status) is InvitationStatus.ACCEPTED:
+            raise InvitationStateError()
+
+        if InvitationStatus(invitation.status) is not InvitationStatus.REVOKED:
+            invitation.status = InvitationStatus.REVOKED
+            invitation.revoked_at = now
+        for outbox_event in outbox_events:
+            if OutboxStatus(outbox_event.status) in {
+                OutboxStatus.PENDING,
+                OutboxStatus.PROCESSING,
+            }:
+                outbox_event.status = OutboxStatus.FAILED
+        self._session.flush()
+        return RevokedInvitation(
+            invitation_id=invitation.id,
+            company_id=invitation.company_id,
+        )
+
+    def list_company_invitations(
+        self,
+        company_id: UUID,
+    ) -> tuple[InvitationSummary, ...]:
+        company = self._session.get(Company, company_id)
+        if company is None:
+            return ()
+        invitations = self._session.scalars(
+            select(Invitation)
+            .where(Invitation.company_id == company_id)
+            .order_by(Invitation.created_at.desc())
+        ).all()
+        return tuple(
+            InvitationSummary(
+                id=invitation.id,
+                company_id=company.id,
+                company_name=company.name,
+                invited_name=invitation.invited_name,
+                email=invitation.email,
+                intended_role=CompanyRole(invitation.intended_role),
+                status=InvitationStatus(invitation.status),
+                expires_at=invitation.expires_at,
+                created_at=invitation.created_at,
+            )
+            for invitation in invitations
+        )
 
     def get_invitation_acceptance_context(
         self,
@@ -260,7 +386,11 @@ class SqlAlchemyCompanyOnboardingRepository(
         ):
             return None
 
-        invitation = self._session.get(Invitation, outbox.invitation_id)
+        invitation = self._session.scalar(
+            select(Invitation)
+            .where(Invitation.id == outbox.invitation_id)
+            .with_for_update()
+        )
         if invitation is None or InvitationStatus(invitation.status) is not InvitationStatus.PENDING:
             outbox.status = OutboxStatus.FAILED
             self._session.flush()
@@ -298,7 +428,7 @@ class SqlAlchemyCompanyOnboardingRepository(
 
     def mark_invitation_email_sent(self, outbox_id: UUID, delivered_at: datetime) -> None:
         outbox = self._session.get(InvitationEmailOutbox, outbox_id)
-        if outbox is None or OutboxStatus(outbox.status) is OutboxStatus.SENT:
+        if outbox is None or OutboxStatus(outbox.status) is not OutboxStatus.PROCESSING:
             return
         outbox.status = OutboxStatus.SENT
         outbox.delivered_at = delivered_at
@@ -311,7 +441,7 @@ class SqlAlchemyCompanyOnboardingRepository(
         retry_at: datetime,
     ) -> None:
         outbox = self._session.get(InvitationEmailOutbox, outbox_id)
-        if outbox is None or OutboxStatus(outbox.status) is OutboxStatus.SENT:
+        if outbox is None or OutboxStatus(outbox.status) is not OutboxStatus.PROCESSING:
             return
         outbox.status = OutboxStatus.PENDING
         outbox.claimed_at = None

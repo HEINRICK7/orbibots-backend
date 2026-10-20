@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Protocol
 from uuid import UUID
 
@@ -6,6 +6,10 @@ from app.src.domain.dtos.company_onboarding import (
     AcceptedInvitation,
     InvitationAcceptanceContext,
     InvitationEmailJob,
+    InvitationSummary,
+    PreparedInvitationResend,
+    ResentInvitation,
+    RevokedInvitation,
 )
 from app.src.domain.entities.access.company_role import CompanyRole
 from app.src.domain.entities.company_onboarding.status import (
@@ -52,6 +56,23 @@ class CompanyOnboardingRepository(Protocol):
     def accept_invitation(
         self, token_hash: str, now: datetime, password_hash: str | None
     ) -> AcceptedInvitation: ...
+
+    def prepare_invitation_resend(
+        self,
+        invitation_id: UUID,
+        now: datetime,
+        token_hash: str,
+        expires_at: datetime,
+        minimum_interval: timedelta,
+    ) -> PreparedInvitationResend: ...
+
+    def revoke_invitation(
+        self, invitation_id: UUID, now: datetime
+    ) -> RevokedInvitation: ...
+
+    def list_company_invitations(
+        self, company_id: UUID
+    ) -> tuple[InvitationSummary, ...]: ...
 
 
 class InvitationOutboxRepository(Protocol):

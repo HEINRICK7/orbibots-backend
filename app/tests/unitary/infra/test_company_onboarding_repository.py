@@ -13,6 +13,10 @@ from app.src.domain.entities.company_onboarding.status import (
     OutboxStatus,
 )
 from app.src.domain.entities.company_onboarding.errors import InvitationNotFoundError
+from app.src.domain.entities.company_onboarding.errors import (
+    InvitationRateLimitError,
+    InvitationStateError,
+)
 from app.src.domain.entities.authentication.status import UserStatus
 from app.src.infra.adapters.company_onboarding_repository import (
     SqlAlchemyCompanyOnboardingRepository,
@@ -207,6 +211,150 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
         self.assertEqual(existing_user_id, accepted.user_id)
         self.assertEqual("existing-password-hash", user.password_hash)
         self.assertEqual(InvitationStatus.ACCEPTED.value, invitation.status)
+
+    def test_resend_rotates_token_and_reuses_company_and_invitation(self) -> None:
+        now = datetime.now(timezone.utc)
+        company_id = UUID("00000000-0000-0000-0000-000000000020")
+        invitation_id = UUID("00000000-0000-0000-0000-000000000021")
+        with self.session.begin():
+            self.session.add(Company(id=company_id, name="Acme", status=CompanyStatus.ACTIVE))
+            self.session.add(
+                Invitation(
+                    id=invitation_id,
+                    company_id=company_id,
+                    invited_name="Ana",
+                    email="ana@example.com",
+                    intended_role=CompanyRole.COMPANY_ADMIN,
+                    token_hash="old-hash",
+                    status=InvitationStatus.EXPIRED,
+                    expires_at=now - timedelta(hours=1),
+                    created_at=now - timedelta(hours=1),
+                )
+            )
+            old_outbox_id = self.repository.create_invitation_outbox_event(
+                invitation_id, now - timedelta(minutes=2)
+            )
+
+        with self.session.begin():
+            resent = self.repository.prepare_invitation_resend(
+                invitation_id,
+                now,
+                "new-hash",
+                now + timedelta(hours=24),
+                timedelta(minutes=1),
+            )
+
+        invitation = self.session.get(Invitation, invitation_id)
+        old_outbox = self.session.get(InvitationEmailOutbox, old_outbox_id)
+        self.assertEqual(company_id, resent.company_id)
+        self.assertEqual(invitation_id, resent.invitation_id)
+        self.assertNotEqual(old_outbox_id, resent.outbox_id)
+        self.assertEqual(InvitationStatus.PENDING.value, invitation.status)
+        self.assertEqual("new-hash", invitation.token_hash)
+        self.assertEqual(OutboxStatus.FAILED.value, old_outbox.status)
+        self.assertEqual(1, len(self.session.scalars(select(Company)).all()))
+        self.assertEqual(1, len(self.session.scalars(select(Invitation)).all()))
+
+    def test_recent_invitation_email_enforces_resend_rate_limit(self) -> None:
+        now = datetime.now(timezone.utc)
+        company_id = UUID("00000000-0000-0000-0000-000000000022")
+        invitation_id = UUID("00000000-0000-0000-0000-000000000023")
+        with self.session.begin():
+            self.session.add(Company(id=company_id, name="Acme", status=CompanyStatus.ACTIVE))
+            self.session.add(
+                Invitation(
+                    id=invitation_id,
+                    company_id=company_id,
+                    invited_name="Ana",
+                    email="ana@example.com",
+                    intended_role=CompanyRole.COMPANY_ADMIN,
+                    token_hash="old-hash",
+                    status=InvitationStatus.PENDING,
+                    expires_at=now + timedelta(hours=24),
+                    created_at=now,
+                )
+            )
+            self.repository.create_invitation_outbox_event(
+                invitation_id, now - timedelta(seconds=10)
+            )
+
+        with self.assertRaises(InvitationRateLimitError):
+            self.repository.prepare_invitation_resend(
+                invitation_id,
+                now,
+                "new-hash",
+                now + timedelta(hours=24),
+                timedelta(minutes=1),
+            )
+        self.session.rollback()
+
+        invitation = self.session.get(Invitation, invitation_id)
+        self.assertEqual("old-hash", invitation.token_hash)
+
+    def test_revoke_invalidates_pending_email_and_accepted_invitation_is_immutable(self) -> None:
+        now = datetime.now(timezone.utc)
+        company_id = UUID("00000000-0000-0000-0000-000000000024")
+        invitation_id = UUID("00000000-0000-0000-0000-000000000025")
+        with self.session.begin():
+            self.session.add(Company(id=company_id, name="Acme", status=CompanyStatus.ACTIVE))
+            self.session.add(
+                Invitation(
+                    id=invitation_id,
+                    company_id=company_id,
+                    invited_name="Ana",
+                    email="ana@example.com",
+                    intended_role=CompanyRole.COMPANY_ADMIN,
+                    token_hash="revoke-hash",
+                    status=InvitationStatus.PENDING,
+                    expires_at=now + timedelta(hours=24),
+                    created_at=now,
+                )
+            )
+            outbox_id = self.repository.create_invitation_outbox_event(invitation_id, now)
+
+        with self.session.begin():
+            self.repository.revoke_invitation(invitation_id, now)
+
+        invitation = self.session.get(Invitation, invitation_id)
+        outbox = self.session.get(InvitationEmailOutbox, outbox_id)
+        self.assertEqual(InvitationStatus.REVOKED.value, invitation.status)
+        self.assertEqual(OutboxStatus.FAILED.value, outbox.status)
+        self.session.commit()
+
+        with self.session.begin():
+            invitation.status = InvitationStatus.ACCEPTED
+            invitation.accepted_at = now
+        with self.assertRaises(InvitationStateError):
+            self.repository.revoke_invitation(invitation_id, now)
+        self.session.rollback()
+
+    def test_invitation_status_query_does_not_return_token_hash(self) -> None:
+        now = datetime.now(timezone.utc)
+        company_id = UUID("00000000-0000-0000-0000-000000000026")
+        invitation_id = UUID("00000000-0000-0000-0000-000000000027")
+        with self.session.begin():
+            self.session.add(Company(id=company_id, name="Acme", status=CompanyStatus.ACTIVE))
+            self.session.add(
+                Invitation(
+                    id=invitation_id,
+                    company_id=company_id,
+                    invited_name="Ana",
+                    email="ana@example.com",
+                    intended_role=CompanyRole.COMPANY_ADMIN,
+                    token_hash="secret-hash",
+                    status=InvitationStatus.PENDING,
+                    expires_at=now + timedelta(hours=24),
+                    created_at=now,
+                )
+            )
+
+        summaries = self.repository.list_company_invitations(company_id)
+
+        self.assertEqual(1, len(summaries))
+        self.assertEqual(InvitationStatus.PENDING, summaries[0].status)
+        self.assertEqual("Acme", summaries[0].company_name)
+        self.assertNotIn("secret-hash", repr(summaries[0]))
+        self.session.rollback()
 
     def test_unit_of_work_rolls_back_company_and_invitation_if_audit_fails(self) -> None:
         from app.src.application.usecases.provision_company import (
