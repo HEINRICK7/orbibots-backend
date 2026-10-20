@@ -9,7 +9,7 @@ enum with the V1 values `COMPANY` and `ASSIGNED_AGENTS`.
 Install the Python dependencies:
 
 ```powershell
-.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip install -r app/requirements.txt
 ```
 
 Create your local environment file:
@@ -32,7 +32,7 @@ In PowerShell, from the project root, install dependencies and create the local
 environment file if it does not exist:
 
 ```powershell
-.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip install -r app/requirements.txt
 Copy-Item .env.example .env
 ```
 
@@ -46,7 +46,7 @@ docker compose up -d --wait postgres
 Start the development server:
 
 ```powershell
-.\venv\Scripts\python.exe -m uvicorn src.main:app --reload
+.\venv\Scripts\python.exe -m uvicorn app.run:app --reload
 ```
 
 The server is available at `http://127.0.0.1:8000`; interactive API
@@ -58,9 +58,10 @@ requires `DATABASE_URL` and a `JWT_SECRET_KEY` of at least 32 characters. The
 signing algorithm is HS256 and `ACCESS_TOKEN_EXPIRE_MINUTES` accepts values
 from 1 to 1440.
 
-This change does not provide account enrollment or password setup. Existing
-users have a nullable password hash and cannot log in until a separate secure
-provisioning flow sets one; no default password is created.
+The company invitation flow creates an account without setting a password and
+returns a bearer session after the invite is accepted. Password-based login
+after that session expires requires a separate password setup or recovery flow;
+this repository does not currently expose that flow.
 
 ### Local development administrator
 
@@ -98,7 +99,7 @@ Run the explicit provisioning command after PostgreSQL is running and the
 Alembic migrations have been applied:
 
 ```powershell
-.\venv\Scripts\python.exe -m src.bootstrap.initial_admins
+.\venv\Scripts\python.exe -m app.src.infra.setup.initial_admins
 ```
 
 The command creates the company as `ACTIVE`, creates missing users with
@@ -109,45 +110,99 @@ account identities; otherwise provisioning fails before database changes.
 Provisioning is safe to rerun: existing accounts are not given new passwords,
 and conflicting inactive accounts or memberships cause an explicit error.
 
+## Company onboarding by invitation
+
+Company onboarding is available under `/company-onboarding`:
+
+- `POST /company-onboarding/companies` lets a global `ADMIN` create a pending
+  company and invite its first `COMPANY_ADMIN`. It returns the company and
+  invitation IDs and the outbox delivery state; it never returns the invitation
+  token. An email with a pending invitation cannot be used for a second company;
+  the existing invitation can be resent or revoked by the global `ADMIN`.
+- `GET /company-onboarding/companies` lists companies and their invitation
+  summaries for the global `ADMIN` console. It returns canonical company and
+  invitation statuses without invitation tokens, hashes, or outbox data.
+- `GET /company-onboarding/companies/{company_id}/invitations`, plus `POST`
+  `/company-onboarding/invitations/{invitation_id}/resend` and `/revoke`, require
+  a global `ADMIN`.
+- `POST /company-onboarding/public/invitations/validate` accepts the invitation
+  token in the JSON body and returns the company, invitee name, masked email,
+  expiry, company ID, and current status. A previously accepted invitation can
+  still be identified as accepted, but cannot be accepted a second time.
+- `POST /company-onboarding/public/invitations/accept` accepts the same one-time
+  token, activates the company membership, and returns a short-lived bearer
+  access token. The invitation token itself is never returned. New users do not
+  set a password during acceptance; they can use the returned session to enter
+  their company.
+
+Configure `COMPANY_INVITATION_URL`, `SMTP_HOST`, and `EMAIL_FROM` to deliver
+invitation emails. `SMTP_USERNAME` and `SMTP_PASSWORD` are optional together;
+port 465 uses implicit TLS and other ports use STARTTLS. Delivery uses a
+transactional outbox with retries. SMTP is optional in development and tests,
+but required in staging and production, where the invitation URL must use
+HTTPS. The one-time invitation token is stored only as a hash and expires after
+24 hours.
+
 ## Project layout
 
 ```text
-src/
-├── domain/
-│   ├── access/
-│   ├── authentication/
-│   └── company_onboarding/
-├── application/
-│   ├── access/
-│   └── authentication/
-│       ├── use_cases/
-│       └── ports/
-├── infrastructure/
-│   ├── authentication/
-│   ├── company_onboarding/
-│   ├── config/
-│   └── persistence/
-├── presentation/
-│   └── api/
-│       ├── authentication/
-│       └── health_check/
-├── bootstrap/
-└── main.py
-
-tests/
-├── unit/
-│   ├── domain/
-│   └── application/
-└── integration/
-    ├── infrastructure/
-    └── api/
+orbibots-backend/
+├── .github/
+├── app/
+│   ├── src/
+│   │   ├── application/
+│   │   │   ├── configuration/
+│   │   │   ├── gateways/
+│   │   │   └── usecases/
+│   │   ├── domain/
+│   │   │   ├── config/
+│   │   │   ├── dtos/
+│   │   │   ├── entities/
+│   │   │   └── interfaces/
+│   │   │       ├── adapters/
+│   │   │       ├── gateways/
+│   │   │       └── usecases/
+│   │   └── infra/
+│   │       ├── adapters/
+│   │       ├── controllers/
+│   │       ├── di/
+│   │       ├── entrypoints/
+│   │       ├── exceptions/
+│   │       └── setup/
+│   ├── tests/
+│   │   ├── unitary/
+│   │   │   ├── application/
+│   │   │   ├── domain/
+│   │   │   └── infra/
+│   │   └── integration/
+│   │       ├── api/
+│   │       ├── health_check/
+│   │       └── infrastructure/
+│   ├── Dockerfile
+│   ├── logging.conf
+│   ├── pytest.ini
+│   ├── requirements.txt
+│   ├── requirements_tests.txt
+│   └── run.py
+├── deploy/
+├── migrations/
+├── .dockerignore
+├── .env.example
+├── .gitignore
+├── alembic.ini
+├── docker-compose.yml
+└── README.md
 ```
 
-Dependencies point inward: domain and application code do not import FastAPI,
-SQLAlchemy, Punq, or cryptographic libraries. Infrastructure implements
-application ports declared as `Protocol`s. Presentation translates HTTP and
-depends on use cases; `src/bootstrap/` wires those use cases to concrete
-adapters, and `src/main.py` exposes `app = create_app()`.
+Dependencies point inward: `domain/` defines entities, DTOs, and interfaces;
+`application/usecases/` implements those contracts and receives dependencies
+through constructors. `infra/adapters/` contains SQLAlchemy, password hashing,
+and token implementations. FastAPI controllers translate HTTP and call use
+cases. `infra/di/` is the composition root and uses Punq to assemble
+request-scoped dependencies, which can be replaced with mocks in tests.
+`infra/exceptions/` maps known failures to HTTP statuses while keeping the
+existing `{"detail": ...}` response shape. `infra/entrypoints/` creates the
+ASGI app, exposed locally as `app.run:app`.
 
 ## Access roles
 
@@ -162,9 +217,9 @@ Global and company access are separate grants:
   active memberships.
 
 `GET /auth/me` returns `global_role` and the active `company_accesses`. FastAPI
-dependencies at the presentation boundary call use cases in
-`src/application/access/`; those use cases apply the rules in
-`src/domain/access/policy.py`. Attach `require_global_admin` to platform
+dependencies at the controller boundary call use cases in
+`app/src/application/usecases/`; those use cases apply the rules in
+`app/src/domain/entities/access/policy.py`. Attach `require_global_admin` to platform
 operations and `require_company_admin` to company operations whose route
 includes a `company_id`. The current backend has no administrative
 business-operation routes yet; those routes must apply the appropriate
@@ -182,5 +237,5 @@ Compose, Alembic, and the integration tests load connection settings from
 
 ```powershell
 .\venv\Scripts\alembic.exe upgrade head
-.\venv\Scripts\python.exe -m unittest discover -s tests -v
+.\venv\Scripts\python.exe -m unittest discover -s app/tests -v
 ```

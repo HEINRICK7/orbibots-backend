@@ -1,0 +1,148 @@
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from dotenv import load_dotenv
+
+from app.src.domain.entities.authentication.errors import GlobalAdminGrantError
+from app.src.domain.entities.authentication.policies import GlobalAdminAllowlist
+from app.src.infra.exceptions.errors import ConfigurationError
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+
+
+def load_environment() -> None:
+    load_dotenv(PROJECT_ROOT / ".env")
+
+
+@dataclass(frozen=True)
+class Settings:
+    app_env: str = "development"
+    database_url: str | None = None
+    jwt_secret_key: str | None = None
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    cors_origins: tuple[str, ...] = ()
+    bootstrap_admin_email: str | None = None
+    bootstrap_admin_password: str | None = None
+    bootstrap_admin_name: str = "Administrador"
+    global_admin_allowed_emails: tuple[str, ...] = ()
+    invitation_base_url: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.app_env not in {"development", "test", "staging", "production"}:
+            raise ConfigurationError(
+                "APP_ENV must be development, test, staging, or production."
+            )
+        if self.jwt_algorithm != "HS256":
+            raise ConfigurationError("JWT_ALGORITHM must be HS256.")
+        if not 1 <= self.access_token_expire_minutes <= 1440:
+            raise ConfigurationError("ACCESS_TOKEN_EXPIRE_MINUTES must be between 1 and 1440.")
+        if not 1 <= self.smtp_port <= 65535:
+            raise ConfigurationError("SMTP_PORT must be between 1 and 65535.")
+        smtp_configured = any(
+            (
+                self.smtp_host,
+                self.smtp_username,
+                self.smtp_password,
+                self.smtp_from_email,
+            )
+        )
+        if smtp_configured and (not self.smtp_host or not self.smtp_from_email):
+            raise ConfigurationError(
+                "SMTP_HOST and EMAIL_FROM are required when email delivery is configured."
+            )
+        if bool(self.smtp_username) != bool(self.smtp_password):
+            raise ConfigurationError(
+                "SMTP_USERNAME and SMTP_PASSWORD must be set together."
+            )
+        if smtp_configured and not self.invitation_base_url:
+            raise ConfigurationError(
+                "COMPANY_INVITATION_URL is required when email delivery is configured."
+            )
+        if self.app_env in {"staging", "production"} and not smtp_configured:
+            raise ConfigurationError(
+                "SMTP_HOST and EMAIL_FROM are required in staging and production."
+            )
+        if self.invitation_base_url:
+            invitation_url = urlsplit(self.invitation_base_url)
+            if invitation_url.scheme not in {"http", "https"} or not invitation_url.netloc:
+                raise ConfigurationError("COMPANY_INVITATION_URL must be an absolute HTTP URL.")
+            if self.app_env in {"staging", "production"} and invitation_url.scheme != "https":
+                raise ConfigurationError(
+                    "COMPANY_INVITATION_URL must use HTTPS in staging and production."
+                )
+        email = (self.bootstrap_admin_email or "").strip()
+        password = self.bootstrap_admin_password or ""
+        if bool(email) != bool(password):
+            raise ConfigurationError(
+                "BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD must be set together."
+            )
+        if password and len(password) < 20:
+            raise ConfigurationError(
+                "BOOTSTRAP_ADMIN_PASSWORD must contain at least 20 characters."
+            )
+        if email:
+            try:
+                GlobalAdminAllowlist(self.global_admin_allowed_emails).ensure_allowed(email)
+            except GlobalAdminGrantError as exc:
+                raise ConfigurationError(
+                    "BOOTSTRAP_ADMIN_EMAIL must be included in "
+                    "GLOBAL_ADMIN_ALLOWED_EMAILS."
+                ) from exc
+        if self.app_env in {"staging", "production"}:
+            if not self.database_url:
+                raise ConfigurationError("DATABASE_URL is required in staging and production.")
+            if not self.jwt_secret_key or len(self.jwt_secret_key) < 32:
+                raise ConfigurationError(
+                    "JWT_SECRET_KEY must contain at least 32 characters in staging and production."
+                )
+
+    @classmethod
+    def from_environment(cls) -> "Settings":
+        load_environment()
+        database_url = os.getenv("DATABASE_URL")
+        jwt_secret_key = os.getenv("JWT_SECRET_KEY")
+        global_admin_allowed_emails = os.getenv("GLOBAL_ADMIN_ALLOWED_EMAILS")
+        return cls(
+            app_env=os.getenv("APP_ENV", "development").lower(),
+            database_url=database_url or None,
+            jwt_secret_key=jwt_secret_key or None,
+            jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
+            access_token_expire_minutes=int(
+                os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+            ),
+            cors_origins=tuple(
+                origin.strip()
+                for origin in os.getenv("CORS_ORIGINS", "").split(",")
+                if origin.strip()
+            ),
+            bootstrap_admin_email=os.getenv("BOOTSTRAP_ADMIN_EMAIL") or None,
+            bootstrap_admin_password=os.getenv("BOOTSTRAP_ADMIN_PASSWORD") or None,
+            bootstrap_admin_name=os.getenv("BOOTSTRAP_ADMIN_NAME", "Administrador"),
+            global_admin_allowed_emails=(
+                tuple(
+                    email.strip()
+                    for email in global_admin_allowed_emails.split(",")
+                )
+                if global_admin_allowed_emails
+                else ()
+            ),
+            invitation_base_url=os.getenv("COMPANY_INVITATION_URL") or None,
+            smtp_host=os.getenv("SMTP_HOST") or None,
+            smtp_port=int(os.getenv("SMTP_PORT", "587")),
+            smtp_username=os.getenv("SMTP_USERNAME") or None,
+            smtp_password=os.getenv("SMTP_PASSWORD") or None,
+            smtp_from_email=os.getenv("EMAIL_FROM") or None,
+        )
+
+    @property
+    def invitation_email_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from_email and self.invitation_base_url)
