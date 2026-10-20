@@ -12,6 +12,8 @@ from app.src.domain.entities.company_onboarding.status import (
     InvitationStatus,
     OutboxStatus,
 )
+from app.src.domain.entities.company_onboarding.errors import InvitationNotFoundError
+from app.src.domain.entities.authentication.status import UserStatus
 from app.src.infra.adapters.company_onboarding_repository import (
     SqlAlchemyCompanyOnboardingRepository,
 )
@@ -20,7 +22,9 @@ from app.src.infra.adapters.persistence.company_onboarding_models import (
     Company,
     Invitation,
     InvitationEmailOutbox,
+    Membership,
 )
+from app.src.infra.adapters.persistence.authentication_models import UserRecord
 from app.src.infra.setup import model_registry
 from app.src.infra.adapters.persistence.transaction import SqlAlchemyUnitOfWork
 
@@ -120,6 +124,89 @@ class SqlAlchemyCompanyOnboardingRepositoryTests(unittest.TestCase):
             OutboxStatus.SENT.value,
             self.session.get(InvitationEmailOutbox, outbox_id).status,
         )
+
+    def test_acceptance_creates_user_membership_and_activates_company(self) -> None:
+        now = datetime.now(timezone.utc)
+        with self.session.begin():
+            company_id = self.repository.create_company(
+                "Acme", CompanyStatus.PENDING_ACTIVATION, now
+            )
+            invitation_id = self.repository.create_invitation(
+                company_id=company_id,
+                invited_name="Ana",
+                email="ana@example.com",
+                phone=None,
+                intended_role=CompanyRole.COMPANY_ADMIN,
+                token_hash="c" * 64,
+                status=InvitationStatus.PENDING,
+                expires_at=now + timedelta(hours=24),
+                created_at=now,
+            )
+
+        with self.session.begin():
+            context = self.repository.get_invitation_acceptance_context("c" * 64, now)
+            accepted = self.repository.accept_invitation("c" * 64, now, "hash-value")
+
+        company = self.session.get(Company, company_id)
+        invitation = self.session.get(Invitation, invitation_id)
+        user = self.session.get(UserRecord, accepted.user_id)
+        membership = self.session.scalar(select(Membership))
+        audit = self.session.scalar(
+            select(AuditEvent).where(AuditEvent.action == "invitation.accept")
+        )
+        self.assertTrue(context.requires_password_setup)
+        self.assertEqual(CompanyStatus.ACTIVE.value, company.status)
+        self.assertIsNotNone(company.activated_at)
+        self.assertEqual(InvitationStatus.ACCEPTED.value, invitation.status)
+        self.assertEqual("hash-value", user.password_hash)
+        self.assertEqual(UserStatus.ACTIVE.value, user.status)
+        self.assertEqual(accepted.user_id, membership.user_id)
+        self.assertEqual(CompanyRole.COMPANY_ADMIN.value, membership.role)
+        self.assertEqual("COMPANY", membership.scope.value)
+        self.assertEqual("invitation.accept", audit.action)
+
+        with self.assertRaises(InvitationNotFoundError):
+            self.repository.get_invitation_acceptance_context("c" * 64, now)
+        self.session.rollback()
+
+    def test_accepting_for_existing_user_does_not_change_password(self) -> None:
+        now = datetime.now(timezone.utc)
+        existing_user_id = UUID("00000000-0000-0000-0000-000000000011")
+        with self.session.begin():
+            company_id = self.repository.create_company(
+                "Acme", CompanyStatus.PENDING_ACTIVATION, now
+            )
+            self.session.add(
+                UserRecord(
+                    id=existing_user_id,
+                    name="Ana",
+                    email="ana@example.com",
+                    password_hash="existing-password-hash",
+                    status=UserStatus.ACTIVE,
+                )
+            )
+            invitation_id = self.repository.create_invitation(
+                company_id=company_id,
+                invited_name="Ana Silva",
+                email="ANA@example.com",
+                phone=None,
+                intended_role=CompanyRole.COMPANY_ADMIN,
+                token_hash="d" * 64,
+                status=InvitationStatus.PENDING,
+                expires_at=now + timedelta(hours=24),
+                created_at=now,
+            )
+
+        with self.session.begin():
+            context = self.repository.get_invitation_acceptance_context("d" * 64, now)
+            accepted = self.repository.accept_invitation("d" * 64, now, None)
+
+        user = self.session.get(UserRecord, existing_user_id)
+        invitation = self.session.get(Invitation, invitation_id)
+        self.assertFalse(context.requires_password_setup)
+        self.assertEqual(existing_user_id, accepted.user_id)
+        self.assertEqual("existing-password-hash", user.password_hash)
+        self.assertEqual(InvitationStatus.ACCEPTED.value, invitation.status)
 
     def test_unit_of_work_rolls_back_company_and_invitation_if_audit_fails(self) -> None:
         from app.src.application.usecases.provision_company import (

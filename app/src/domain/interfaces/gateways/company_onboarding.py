@@ -2,7 +2,11 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from app.src.domain.dtos.company_onboarding import InvitationEmailJob
+from app.src.domain.dtos.company_onboarding import (
+    AcceptedInvitation,
+    InvitationAcceptanceContext,
+    InvitationEmailJob,
+)
 from app.src.domain.entities.access.company_role import CompanyRole
 from app.src.domain.entities.company_onboarding.status import (
     AuditOutcome,
@@ -40,6 +44,14 @@ class CompanyOnboardingRepository(Protocol):
     def create_invitation_outbox_event(
         self, invitation_id: UUID, created_at: datetime
     ) -> UUID: ...
+
+    def get_invitation_acceptance_context(
+        self, token_hash: str, now: datetime
+    ) -> InvitationAcceptanceContext: ...
+
+    def accept_invitation(
+        self, token_hash: str, now: datetime, password_hash: str | None
+    ) -> AcceptedInvitation: ...
 
 
 class InvitationOutboxRepository(Protocol):

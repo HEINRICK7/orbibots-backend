@@ -87,3 +87,22 @@ class InvitationEmailMessage:
 @dataclass(frozen=True)
 class EmailDispatchResult:
     sent: bool
+
+
+@dataclass(frozen=True)
+class InvitationAcceptanceContext:
+    invitation_id: UUID
+    company_id: UUID
+    company_name: str
+    invited_name: str
+    email: str
+    expires_at: datetime
+    requires_password_setup: bool
+
+
+@dataclass(frozen=True)
+class AcceptedInvitation:
+    invitation_id: UUID
+    company_id: UUID
+    company_name: str
+    user_id: UUID

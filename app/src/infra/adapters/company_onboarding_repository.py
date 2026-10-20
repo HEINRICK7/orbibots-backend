@@ -1,17 +1,30 @@
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.src.domain.entities.access.company_role import CompanyRole
-from app.src.domain.dtos.company_onboarding import InvitationEmailJob
+from app.src.domain.dtos.company_onboarding import (
+    AcceptedInvitation,
+    InvitationAcceptanceContext,
+    InvitationEmailJob,
+)
+from app.src.domain.entities.company_onboarding.errors import (
+    CompanyOnboardingConflictError,
+    InvalidCompanyOnboardingInputError,
+    InvitationNotFoundError,
+    InvitationStateError,
+)
 from app.src.domain.entities.company_onboarding.status import (
     AuditOutcome,
     CompanyStatus,
     InvitationStatus,
+    MembershipStatus,
     OutboxStatus,
 )
+from app.src.domain.entities.company_onboarding.membership_scope import MembershipScope
+from app.src.domain.entities.authentication.status import UserStatus
 from app.src.domain.interfaces.gateways.company_onboarding import (
     CompanyOnboardingRepository,
     InvitationOutboxRepository,
@@ -21,7 +34,9 @@ from app.src.infra.adapters.persistence.company_onboarding_models import (
     Company,
     Invitation,
     InvitationEmailOutbox,
+    Membership,
 )
+from app.src.infra.adapters.persistence.authentication_models import UserRecord
 
 
 class SqlAlchemyCompanyOnboardingRepository(
@@ -95,6 +110,124 @@ class SqlAlchemyCompanyOnboardingRepository(
         self._session.add(outbox_event)
         self._session.flush()
         return outbox_event.id
+
+    def get_invitation_acceptance_context(
+        self,
+        token_hash: str,
+        now: datetime,
+    ) -> InvitationAcceptanceContext:
+        invitation, company, user = self._load_invitation_acceptance(token_hash, now)
+        return InvitationAcceptanceContext(
+            invitation_id=invitation.id,
+            company_id=company.id,
+            company_name=company.name,
+            invited_name=invitation.invited_name,
+            email=invitation.email,
+            expires_at=invitation.expires_at,
+            requires_password_setup=user is None or user.password_hash is None,
+        )
+
+    def accept_invitation(
+        self,
+        token_hash: str,
+        now: datetime,
+        password_hash: str | None,
+    ) -> AcceptedInvitation:
+        invitation, company, user = self._load_invitation_acceptance(token_hash, now)
+        if user is None:
+            if password_hash is None:
+                raise InvalidCompanyOnboardingInputError(
+                    "A password is required to create the account."
+                )
+            user = UserRecord(
+                name=invitation.invited_name,
+                email=invitation.email,
+                password_hash=password_hash,
+                status=UserStatus.ACTIVE,
+            )
+            self._session.add(user)
+            self._session.flush()
+        elif user.password_hash is None:
+            if password_hash is None:
+                raise InvalidCompanyOnboardingInputError(
+                    "A password is required to activate the account."
+                )
+            user.password_hash = password_hash
+
+        active_membership = self._session.scalar(
+            select(Membership)
+            .where(
+                Membership.company_id == company.id,
+                Membership.user_id == user.id,
+                Membership.status == MembershipStatus.ACTIVE,
+            )
+            .with_for_update()
+        )
+        if active_membership is not None:
+            if CompanyRole(active_membership.role) is not CompanyRole.COMPANY_ADMIN:
+                raise CompanyOnboardingConflictError(
+                    "The user already has a different active role for this company."
+                )
+        else:
+            self._session.add(
+                Membership(
+                    company_id=company.id,
+                    user_id=user.id,
+                    role=CompanyRole.COMPANY_ADMIN,
+                    scope=MembershipScope.COMPANY,
+                    status=MembershipStatus.ACTIVE,
+                )
+            )
+
+        if CompanyStatus(company.status) is CompanyStatus.PENDING_ACTIVATION:
+            company.status = CompanyStatus.ACTIVE
+            company.activated_at = now
+        invitation.status = InvitationStatus.ACCEPTED
+        invitation.accepted_at = now
+        self.create_audit_event(
+            user.id,
+            company.id,
+            "invitation.accept",
+            AuditOutcome.SUCCESS,
+        )
+        self._session.flush()
+        return AcceptedInvitation(
+            invitation_id=invitation.id,
+            company_id=company.id,
+            company_name=company.name,
+            user_id=user.id,
+        )
+
+    def _load_invitation_acceptance(
+        self,
+        token_hash: str,
+        now: datetime,
+    ) -> tuple[Invitation, Company, UserRecord | None]:
+        invitation = self._session.scalar(
+            select(Invitation)
+            .where(Invitation.token_hash == token_hash)
+            .with_for_update()
+        )
+        if (
+            invitation is None
+            or InvitationStatus(invitation.status) is not InvitationStatus.PENDING
+        ):
+            raise InvitationNotFoundError()
+        if _as_utc(invitation.expires_at) <= _as_utc(now):
+            raise InvitationStateError()
+        company = self._session.scalar(
+            select(Company).where(Company.id == invitation.company_id).with_for_update()
+        )
+        if company is None or CompanyStatus(company.status) is CompanyStatus.SUSPENDED:
+            raise InvitationStateError()
+        user = self._session.scalar(
+            select(UserRecord)
+            .where(func.lower(UserRecord.email) == invitation.email.casefold())
+            .with_for_update()
+        )
+        if user is not None and UserStatus(user.status) is not UserStatus.ACTIVE:
+            raise InvitationStateError()
+        return invitation, company, user
 
     def claim_invitation_email(
         self,
